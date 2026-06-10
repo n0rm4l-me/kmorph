@@ -55,12 +55,17 @@ type ResourceTarget struct {
 }
 
 // PatchType defines the type of patch to apply.
-// +kubebuilder:validation:Enum=strategic;merge
+// +kubebuilder:validation:Enum=strategic;merge;json
 type PatchType string
 
 const (
+	// PatchTypeStrategic uses strategic merge patch — best for native k8s resources (Deployment, etc.)
 	PatchTypeStrategic PatchType = "strategic"
-	PatchTypeMerge     PatchType = "merge"
+	// PatchTypeMerge uses JSON merge patch (RFC 7396) — replaces map keys, use for custom CRDs.
+	PatchTypeMerge PatchType = "merge"
+	// PatchTypeJSON uses JSON patch (RFC 6902) — surgical operations on specific paths.
+	// Ideal for patching array elements (e.g. containers[0].resources) without touching other fields.
+	PatchTypeJSON PatchType = "json"
 )
 
 // RolloutPolicy defines how kmorph interacts with Argo Rollout objects.
@@ -93,6 +98,8 @@ type ResourcePatch struct {
 	Target ResourceTarget `json:"target"`
 
 	// patch is the patch to apply to the matched resources.
+	// For patchType=strategic or merge: a JSON object (map).
+	// For patchType=json: a JSON array of RFC 6902 operations.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Patch runtime.RawExtension `json:"patch"`

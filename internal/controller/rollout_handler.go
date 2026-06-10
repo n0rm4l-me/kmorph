@@ -140,10 +140,7 @@ func (r *ProfileActivationReconciler) applyRolloutPatch(
 	if len(patchData) == 0 {
 		return 0, nil
 	}
-	pt := types.StrategicMergePatchType
-	if rp.PatchType == configv1alpha1.PatchTypeMerge {
-		pt = types.MergePatchType
-	}
+	pt := patchTypeToK8s(rp.PatchType)
 	if err := r.Patch(ctx, rollout, client.RawPatch(pt, patchData)); err != nil {
 		return 0, fmt.Errorf("patching rollout %s/%s: %w", rollout.GetNamespace(), rollout.GetName(), err)
 	}
@@ -151,7 +148,19 @@ func (r *ProfileActivationReconciler) applyRolloutPatch(
 	r.Recorder.Eventf(activation, corev1.EventTypeNormal, "RolloutPatched",
 		"patched Rollout %s/%s, waiting for promote", rollout.GetNamespace(), rollout.GetName())
 
-	// Step 3: Record progress.
+	// Step 3: Full promote to skip all canary steps.
+	// We do this immediately after patching so Rollout jumps to stable without
+	// running smoke tests or canary analysis.
+	if policy != nil && policy.SkipSteps {
+		if err := r.promoteRolloutFull(ctx, rollout); err != nil {
+			log.Error(err, "failed to promote rollout, will retry", "rollout", rollout.GetName())
+			// Non-fatal — the requeue will retry promote on next cycle.
+		} else {
+			log.Info("promoted rollout full (skip steps)", "rollout", rollout.GetName())
+		}
+	}
+
+	// Step 4: Record progress.
 	now := metav1.Now()
 	upsertRolloutProgress(activation, configv1alpha1.RolloutProgress{
 		Namespace:        rp.Target.Namespace,
@@ -286,6 +295,21 @@ func (r *ProfileActivationReconciler) rolloutNeedsPatch(
 	}
 
 	return false, nil
+}
+
+// promoteRolloutFull triggers a full promote on the Rollout, skipping all canary steps.
+// This is equivalent to `kubectl argo rollouts promote --full`.
+// The correct mechanism requires patching both spec.paused=false and status.promoteFull=true
+// in a single operation, as per the Argo Rollouts CLI implementation.
+func (r *ProfileActivationReconciler) promoteRolloutFull(ctx context.Context, rollout *unstructured.Unstructured) error {
+	// Step 1: patch spec.paused=false
+	specPatch := []byte(`{"spec":{"paused":false}}`)
+	if err := r.Patch(ctx, rollout, client.RawPatch(types.MergePatchType, specPatch)); err != nil {
+		return err
+	}
+	// Step 2: patch status.promoteFull=true
+	statusPatch := []byte(`{"promoteFull":true}`)
+	return r.Status().Patch(ctx, rollout, client.RawPatch(types.MergePatchType, statusPatch))
 }
 
 // abortRollout sets abort=true in the Rollout status.

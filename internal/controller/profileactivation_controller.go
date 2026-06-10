@@ -262,8 +262,18 @@ func (r *ProfileActivationReconciler) applyProfile(
 	var drifts []configv1alpha1.DriftEntry
 	minRequeue := 30 * time.Second
 
+	// Collect Rollout targets that need promoteFull after all patches applied.
+	// Key: "namespace/name", Value: RolloutPolicy
+	type rolloutPromoteTarget struct {
+		namespace string
+		name      string
+		policy    *configv1alpha1.RolloutPolicy
+	}
+	var rolloutPromotes []rolloutPromoteTarget
+	seenRollouts := map[string]bool{}
+
 	for _, rp := range profile.Spec.Patches {
-		// Route Rollout patches through the Rollout-aware handler.
+		// Route Rollout patches with rolloutPolicy through the Rollout-aware handler.
 		if rp.Target.Group == rolloutGroup && rp.Target.Kind == rolloutKind && rp.RolloutPolicy != nil {
 			requeue, err := r.handleRolloutPatch(ctx, activation, rp)
 			if err != nil {
@@ -272,7 +282,32 @@ func (r *ProfileActivationReconciler) applyProfile(
 			if requeue > 0 && requeue < minRequeue {
 				minRequeue = requeue
 			}
+			key := rp.Target.Namespace + "/" + rp.Target.Name
+			if !seenRollouts[key] && rp.RolloutPolicy.SkipSteps {
+				rolloutPromotes = append(rolloutPromotes, rolloutPromoteTarget{
+					namespace: rp.Target.Namespace,
+					name:      rp.Target.Name,
+					policy:    rp.RolloutPolicy,
+				})
+				seenRollouts[key] = true
+			}
 			continue
+		}
+
+		// For Rollout targets WITHOUT rolloutPolicy — apply directly but track for promote.
+		if rp.Target.Group == rolloutGroup && rp.Target.Kind == rolloutKind {
+			key := rp.Target.Namespace + "/" + rp.Target.Name
+			if !seenRollouts[key] {
+				// Check if another patch in this profile has rolloutPolicy.skipSteps for same target.
+				for _, other := range profile.Spec.Patches {
+					if other.Target.Namespace == rp.Target.Namespace &&
+						other.Target.Name == rp.Target.Name &&
+						other.RolloutPolicy != nil && other.RolloutPolicy.SkipSteps {
+						seenRollouts[key] = true
+						break
+					}
+				}
+			}
 		}
 
 		// Standard patch path.
@@ -303,10 +338,7 @@ func (r *ProfileActivationReconciler) applyProfile(
 				continue
 			}
 
-			pt := types.StrategicMergePatchType
-			if rp.PatchType == configv1alpha1.PatchTypeMerge {
-				pt = types.MergePatchType
-			}
+			pt := patchTypeToK8s(rp.PatchType)
 			if err := r.Patch(ctx, &res, client.RawPatch(pt, patchData)); err != nil {
 				log.Error(err, "failed to patch resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 				return nil, 0, err
@@ -314,6 +346,24 @@ func (r *ProfileActivationReconciler) applyProfile(
 			log.Info("patched resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 		}
 	}
+	// After all patches applied — promote Rollouts that have skipSteps=true.
+	// This must happen AFTER all template changes to avoid triggering canary mid-patch.
+	for _, target := range rolloutPromotes {
+		rollout := &unstructured.Unstructured{}
+		rollout.SetGroupVersionKind(knownGVK[rolloutGroup+"/"+rolloutKind])
+		if err := r.Get(ctx, types.NamespacedName{Namespace: target.namespace, Name: target.name}, rollout); err != nil {
+			if !errors.IsNotFound(err) {
+				log.Error(err, "failed to get rollout for promote", "name", target.name)
+			}
+			continue
+		}
+		if err := r.promoteRolloutFull(ctx, rollout); err != nil {
+			log.Error(err, "failed to promote rollout full", "name", target.name)
+		} else {
+			log.Info("promoted rollout full (skip steps)", "rollout", target.name, "namespace", target.namespace)
+		}
+	}
+
 	return drifts, minRequeue, nil
 }
 
@@ -429,6 +479,18 @@ var knownGVK = map[string]schema.GroupVersionKind{
 	"argoproj.io/AnalysisRun":    {Group: "argoproj.io", Version: "v1alpha1", Kind: "AnalysisRun"},
 	"keda.sh/ScaledObject":       {Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledObject"},
 	"keda.sh/ScaledJob":          {Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledJob"},
+}
+
+// patchTypeToK8s converts kmorph PatchType to the k8s types.PatchType.
+func patchTypeToK8s(pt configv1alpha1.PatchType) types.PatchType {
+	switch pt {
+	case configv1alpha1.PatchTypeMerge:
+		return types.MergePatchType
+	case configv1alpha1.PatchTypeJSON:
+		return types.JSONPatchType
+	default:
+		return types.StrategicMergePatchType
+	}
 }
 
 // resolveGVK maps kind to its GroupVersionKind.

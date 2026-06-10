@@ -2,73 +2,106 @@
 apiVersion: config.kmorph.io/v1alpha1
 kind: ClusterProfile
 metadata:
-  name: sleep
+  name: jppost-token-service-sleep
 spec:
   driftPolicy: strict
   patches:
   - target:
-      namespace: kmorph-workload
-      kind: Deployment
-      labelSelector:
-        tier: backend
+      namespace: dev-paas-jppost-101
+      kind: Rollout
+      group: argoproj.io
+      name: paas-token-service
+    patchType: merge
+    rolloutPolicy:
+      skipSteps: true
+      abortOnFailure: true
+      progressDeadlineSeconds: 300
     patch:
       spec:
         replicas: 0
 
 ---
-# minimal — по одной реплике, минимальные ресурсы
+# minimal — 1 реплика, минимальные ресурсы
 apiVersion: config.kmorph.io/v1alpha1
 kind: ClusterProfile
 metadata:
-  name: minimal
+  name: jppost-token-service-minimal
 spec:
   driftPolicy: strict
   patches:
+  # patch 1: replicas via merge
   - target:
-      namespace: kmorph-workload
-      kind: Deployment
-      labelSelector:
-        tier: backend
+      namespace: dev-paas-jppost-101
+      kind: Rollout
+      group: argoproj.io
+      name: paas-token-service
+    patchType: merge
+    rolloutPolicy:
+      skipSteps: true
+      abortOnFailure: true
+      progressDeadlineSeconds: 300
     patch:
       spec:
         replicas: 1
-        template:
-          spec:
-            containers:
-            - name: app
-              resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 200m
-                  memory: 128Mi
+  # patch 2: container resources via JSON patch (surgical, doesn't touch image)
+  - target:
+      namespace: dev-paas-jppost-101
+      kind: Rollout
+      group: argoproj.io
+      name: paas-token-service
+    patchType: json
+    patch:
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
 
 ---
-# production — полная конфигурация
+# production — 2 реплики, полные ресурсы
 apiVersion: config.kmorph.io/v1alpha1
 kind: ClusterProfile
 metadata:
-  name: production
+  name: jppost-token-service-production
 spec:
   driftPolicy: strict
   patches:
   - target:
-      namespace: kmorph-workload
-      kind: Deployment
-      labelSelector:
-        tier: backend
+      namespace: dev-paas-jppost-101
+      kind: Rollout
+      group: argoproj.io
+      name: paas-token-service
+    patchType: merge
+    rolloutPolicy:
+      skipSteps: true
+      abortOnFailure: true
+      progressDeadlineSeconds: 300
     patch:
       spec:
-        replicas: 3
-        template:
-          spec:
-            containers:
-            - name: app
-              resources:
-                requests:
-                  cpu: 500m
-                  memory: 512Mi
-                limits:
-                  cpu: 2000m
-                  memory: 1Gi
+        replicas: 2
+  - target:
+      namespace: dev-paas-jppost-101
+      kind: Rollout
+      group: argoproj.io
+      name: paas-token-service
+    patchType: json
+    patch:
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "768Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "768Mi"

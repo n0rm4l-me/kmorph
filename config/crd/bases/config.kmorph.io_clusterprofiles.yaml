@@ -72,8 +72,10 @@ spec:
                     resources.
                   properties:
                     patch:
-                      description: patch is the patch to apply to the matched resources.
-                      type: object
+                      description: |-
+                        patch is the patch to apply to the matched resources.
+                        For patchType=strategic or merge: a JSON object (map).
+                        For patchType=json: a JSON array of RFC 6902 operations.
                       x-kubernetes-preserve-unknown-fields: true
                     patchType:
                       default: strategic
@@ -84,6 +86,7 @@ spec:
                       enum:
                       - strategic
                       - merge
+                      - json
                       type: string
                     rolloutPolicy:
                       description: |-
