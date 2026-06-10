@@ -533,6 +533,14 @@ func mapsSubset(subset, target map[string]interface{}) bool {
 			if !mapsSubset(svMap, tvMap) {
 				return false
 			}
+		} else if !svIsMap && !tvIsMap {
+			// Compare scalar values using fmt representation for simplicity.
+			if fmt.Sprintf("%v", sv) != fmt.Sprintf("%v", tv) {
+				return false
+			}
+		} else {
+			// One is a map, the other is not — definitely differs.
+			return false
 		}
 	}
 	return true

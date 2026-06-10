@@ -36,6 +36,10 @@ fmt: ## Run go fmt.
 vet: ## Run go vet.
 	go vet ./...
 
+.PHONY: test
+test: ## Run unit tests (no envtest required).
+	go test ./... -v -count=1 -run "^Test[^C]" -skip "TestControllers"
+
 ##@ Build
 
 .PHONY: build
