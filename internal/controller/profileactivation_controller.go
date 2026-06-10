@@ -281,7 +281,11 @@ func (r *ProfileActivationReconciler) applyProfile(ctx context.Context, profile 
 				continue
 			}
 
-			if err := r.Patch(ctx, &res, client.RawPatch(types.StrategicMergePatchType, patchData)); err != nil {
+			pt := types.StrategicMergePatchType
+			if rp.PatchType == configv1alpha1.PatchTypeMerge {
+				pt = types.MergePatchType
+			}
+			if err := r.Patch(ctx, &res, client.RawPatch(pt, patchData)); err != nil {
 				log.Error(err, "failed to patch resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 				return nil, err
 			}
@@ -392,25 +396,32 @@ func prevScheduleTime(s cron.Schedule, t time.Time) time.Time {
 	return last
 }
 
-// resolveGVK maps common kind names to their GVK.
+// knownGVK maps well-known group+kind pairs to their correct version.
+var knownGVK = map[string]schema.GroupVersionKind{
+	"/Deployment":               appsv1.SchemeGroupVersion.WithKind("Deployment"),
+	"/StatefulSet":               appsv1.SchemeGroupVersion.WithKind("StatefulSet"),
+	"/DaemonSet":                 appsv1.SchemeGroupVersion.WithKind("DaemonSet"),
+	"/ConfigMap":                 corev1.SchemeGroupVersion.WithKind("ConfigMap"),
+	"/Service":                   corev1.SchemeGroupVersion.WithKind("Service"),
+	"argoproj.io/Rollout":        {Group: "argoproj.io", Version: "v1alpha1", Kind: "Rollout"},
+	"argoproj.io/AnalysisRun":    {Group: "argoproj.io", Version: "v1alpha1", Kind: "AnalysisRun"},
+	"keda.sh/ScaledObject":       {Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledObject"},
+	"keda.sh/ScaledJob":          {Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledJob"},
+}
+
+// resolveGVK maps kind to its GroupVersionKind.
+// If group is specified, looks up the known version first, then falls back to v1alpha1.
 func resolveGVK(group, kind string) schema.GroupVersionKind {
-	if group != "" {
-		return schema.GroupVersionKind{Group: group, Version: "v1", Kind: kind}
+	key := group + "/" + kind
+	if gvk, ok := knownGVK[key]; ok {
+		return gvk
 	}
-	switch kind {
-	case "Deployment":
-		return appsv1.SchemeGroupVersion.WithKind("Deployment")
-	case "StatefulSet":
-		return appsv1.SchemeGroupVersion.WithKind("StatefulSet")
-	case "DaemonSet":
-		return appsv1.SchemeGroupVersion.WithKind("DaemonSet")
-	case "ConfigMap":
-		return corev1.SchemeGroupVersion.WithKind("ConfigMap")
-	case "Service":
-		return corev1.SchemeGroupVersion.WithKind("Service")
-	default:
-		return schema.GroupVersionKind{Group: group, Version: "v1", Kind: kind}
+	if group == "" {
+		// core group — default to v1
+		return schema.GroupVersionKind{Group: "", Version: "v1", Kind: kind}
 	}
+	// unknown custom CRD — try v1alpha1 as the most common version
+	return schema.GroupVersionKind{Group: group, Version: "v1alpha1", Kind: kind}
 }
 
 // hasDrift checks if the resource's fields differ from what the patch would set.

@@ -72,10 +72,19 @@ spec:
                     resources.
                   properties:
                     patch:
-                      description: patch is a strategic merge patch applied to the
-                        matched resources.
+                      description: patch is the patch to apply to the matched resources.
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    patchType:
+                      default: strategic
+                      description: |-
+                        patchType defines how the patch is applied.
+                        strategic: strategic merge patch (default, works best for native k8s resources).
+                        merge: JSON merge patch (use for custom CRDs like Rollout).
+                      enum:
+                      - strategic
+                      - merge
+                      type: string
                     target:
                       description: target identifies which resources to patch.
                       properties:

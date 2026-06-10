@@ -54,16 +54,32 @@ type ResourceTarget struct {
 	LabelSelector map[string]string `json:"labelSelector,omitempty"`
 }
 
+// PatchType defines the type of patch to apply.
+// +kubebuilder:validation:Enum=strategic;merge
+type PatchType string
+
+const (
+	PatchTypeStrategic PatchType = "strategic"
+	PatchTypeMerge     PatchType = "merge"
+)
+
 // ResourcePatch defines a patch to apply to a set of resources.
 type ResourcePatch struct {
 	// target identifies which resources to patch.
 	// +kubebuilder:validation:Required
 	Target ResourceTarget `json:"target"`
 
-	// patch is a strategic merge patch applied to the matched resources.
+	// patch is the patch to apply to the matched resources.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Patch runtime.RawExtension `json:"patch"`
+
+	// patchType defines how the patch is applied.
+	// strategic: strategic merge patch (default, works best for native k8s resources).
+	// merge: JSON merge patch (use for custom CRDs like Rollout).
+	// +kubebuilder:default=strategic
+	// +optional
+	PatchType PatchType `json:"patchType,omitempty"`
 }
 
 // ClusterProfileSpec defines the desired state of ClusterProfile.
