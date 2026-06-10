@@ -1,0 +1,17 @@
+apiVersion: v2
+name: kmorph
+description: Kubernetes operator for switching cluster resource profiles between named modes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/n0rm4l-me/kmorph
+sources:
+  - https://github.com/n0rm4l-me/kmorph
+keywords:
+  - kubernetes
+  - operator
+  - profiles
+  - resource-management
+maintainers:
+  - name: kmorph maintainers
+    url: https://github.com/n0rm4l-me/kmorph

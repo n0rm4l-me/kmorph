@@ -1,0 +1,49 @@
+# fallback — всегда активен с низким приоритетом, применяет minimal
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: fallback
+spec:
+  profileRef: minimal
+  priority: 0
+
+---
+# business-hours — пн-пт 9:00-18:00 JST, применяет minimal
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: business-hours
+spec:
+  profileRef: minimal
+  priority: 10
+  schedule:
+    start: "0 9 * * 1-5"
+    end:   "0 18 * * 1-5"
+    timezone: "Asia/Tokyo"
+
+---
+# sleep-nights — ночью и в выходные, применяет sleep
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: sleep-nights
+spec:
+  profileRef: sleep
+  priority: 20
+  schedule:
+    start: "0 18 * * 1-5"
+    end:   "0 9 * * 1-5"
+    timezone: "Asia/Tokyo"
+
+---
+# client-demo — разовая активация production на 4 часа
+# Создай вручную когда нужно, удали чтобы откатиться
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: client-demo
+spec:
+  profileRef: production
+  priority: 100
+  duration: "4h"
+  suspended: false

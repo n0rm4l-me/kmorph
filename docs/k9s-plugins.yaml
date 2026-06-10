@@ -1,0 +1,176 @@
+## kmorph k9s plugins
+##
+## Usage: merge this into your k9s plugins.yaml
+##   cat k9s-plugins.yaml >> ~/.config/k9s/plugins.yaml
+##   # or on older installs: >> ~/.k9s/plugins.yaml
+##
+## In k9s:
+##   :clusterprofiles      — browse ClusterProfiles
+##   :profileactivations   — browse ProfileActivations
+
+plugins:
+  # kmorph — ClusterProfile
+  kmorph-activate:
+    shortCut: Ctrl-A
+    description: "kmorph: activate this profile"
+    scopes:
+      - clusterprofiles
+    command: bash
+    background: false
+    confirm: false
+    args:
+      - -c
+      - |
+        echo "Activating profile: $NAME"
+        echo -n "Priority [50]: "
+        read PRIORITY
+        PRIORITY=${PRIORITY:-50}
+        echo -n "Duration (e.g. 4h, 30m) or leave empty for indefinite: "
+        read DURATION
+        if [ -n "$DURATION" ]; then
+          DURATION_FIELD="  duration: \"$DURATION\""
+        else
+          DURATION_FIELD=""
+        fi
+        ACTIVATION_NAME="${NAME}-$(date +%s)"
+        kubectl apply -f - <<EOF
+        apiVersion: config.kmorph.io/v1alpha1
+        kind: ProfileActivation
+        metadata:
+          name: $ACTIVATION_NAME
+        spec:
+          profileRef: $NAME
+          priority: $PRIORITY
+        $DURATION_FIELD
+        EOF
+        echo "Created ProfileActivation: $ACTIVATION_NAME"
+
+  kmorph-describe:
+    shortCut: d
+    description: "kmorph: describe ClusterProfile"
+    scopes:
+      - clusterprofiles
+    command: kubectl
+    background: false
+    args:
+      - describe
+      - clusterprofile
+      - $NAME
+
+  kmorph-events:
+    shortCut: Ctrl-E
+    description: "kmorph: show events"
+    scopes:
+      - clusterprofiles
+    command: kubectl
+    background: false
+    args:
+      - get
+      - events
+      - --field-selector
+      - involvedObject.name=$NAME
+      - --sort-by=.lastTimestamp
+
+  kmorph-logs:
+    shortCut: Ctrl-L
+    description: "kmorph: operator logs"
+    scopes:
+      - clusterprofiles
+    command: kubectl
+    background: false
+    args:
+      - logs
+      - -n
+      - kmorph-system
+      - -l
+      - app.kubernetes.io/name=kmorph
+      - --tail=100
+      - -f
+
+  # kmorph — ProfileActivation
+  kmorph-activation-describe:
+    shortCut: d
+    description: "kmorph: describe ProfileActivation"
+    scopes:
+      - profileactivations
+    command: kubectl
+    background: false
+    args:
+      - describe
+      - profileactivation
+      - $NAME
+
+  kmorph-activation-suspend:
+    shortCut: Ctrl-X
+    description: "kmorph: suspend activation"
+    scopes:
+      - profileactivations
+    command: kubectl
+    background: false
+    confirm: true
+    args:
+      - patch
+      - profileactivation
+      - $NAME
+      - --type=merge
+      - -p
+      - '{"spec":{"suspended":true}}'
+
+  kmorph-activation-resume:
+    shortCut: Ctrl-R
+    description: "kmorph: resume activation"
+    scopes:
+      - profileactivations
+    command: kubectl
+    background: false
+    confirm: true
+    args:
+      - patch
+      - profileactivation
+      - $NAME
+      - --type=merge
+      - -p
+      - '{"spec":{"suspended":false}}'
+
+  kmorph-activation-delete:
+    shortCut: Ctrl-D
+    description: "kmorph: delete activation (triggers failover)"
+    scopes:
+      - profileactivations
+    command: kubectl
+    background: false
+    confirm: true
+    args:
+      - delete
+      - profileactivation
+      - $NAME
+
+  kmorph-activation-logs:
+    shortCut: Ctrl-L
+    description: "kmorph: operator logs"
+    scopes:
+      - profileactivations
+    command: kubectl
+    background: false
+    args:
+      - logs
+      - -n
+      - kmorph-system
+      - -l
+      - app.kubernetes.io/name=kmorph
+      - --tail=100
+      - -f
+
+  kmorph-activation-events:
+    shortCut: Ctrl-E
+    description: "kmorph: show events"
+    scopes:
+      - profileactivations
+    command: kubectl
+    background: false
+    args:
+      - get
+      - events
+      - --field-selector
+      - involvedObject.name=$NAME
+      - --sort-by=.lastTimestamp

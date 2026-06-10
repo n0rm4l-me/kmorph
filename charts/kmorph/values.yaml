@@ -1,0 +1,29 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/n0rm4l-me/kmorph
+  tag: "0.3.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Leader election is required when running multiple replicas.
+leaderElection:
+  enabled: true

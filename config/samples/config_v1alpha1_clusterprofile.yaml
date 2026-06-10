@@ -1,0 +1,74 @@
+# sleep — все реплики выключены
+apiVersion: config.kmorph.io/v1alpha1
+kind: ClusterProfile
+metadata:
+  name: sleep
+spec:
+  driftPolicy: strict
+  patches:
+  - target:
+      namespace: kmorph-workload
+      kind: Deployment
+      labelSelector:
+        tier: backend
+    patch:
+      spec:
+        replicas: 0
+
+---
+# minimal — по одной реплике, минимальные ресурсы
+apiVersion: config.kmorph.io/v1alpha1
+kind: ClusterProfile
+metadata:
+  name: minimal
+spec:
+  driftPolicy: strict
+  patches:
+  - target:
+      namespace: kmorph-workload
+      kind: Deployment
+      labelSelector:
+        tier: backend
+    patch:
+      spec:
+        replicas: 1
+        template:
+          spec:
+            containers:
+            - name: app
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+
+---
+# production — полная конфигурация
+apiVersion: config.kmorph.io/v1alpha1
+kind: ClusterProfile
+metadata:
+  name: production
+spec:
+  driftPolicy: strict
+  patches:
+  - target:
+      namespace: kmorph-workload
+      kind: Deployment
+      labelSelector:
+        tier: backend
+    patch:
+      spec:
+        replicas: 3
+        template:
+          spec:
+            containers:
+            - name: app
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 512Mi
+                limits:
+                  cpu: 2000m
+                  memory: 1Gi

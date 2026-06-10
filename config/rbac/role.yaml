@@ -1,0 +1,63 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - config.kmorph.io
+  resources:
+  - clusterprofiles
+  - profileactivations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.kmorph.io
+  resources:
+  - clusterprofiles/finalizers
+  - profileactivations/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - config.kmorph.io
+  resources:
+  - clusterprofiles/status
+  - profileactivations/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
