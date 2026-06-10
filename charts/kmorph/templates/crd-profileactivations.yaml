@@ -233,6 +233,54 @@ spec:
                 - Expired
                 - Suspended
                 type: string
+              rolloutProgress:
+                description: rolloutProgress tracks in-flight Rollout promote operations
+                  managed by kmorph.
+                items:
+                  description: RolloutProgress tracks the promote lifecycle for a
+                    single Rollout target.
+                  properties:
+                    completedAt:
+                      description: completedAt is when the Rollout reached Healthy
+                        after patching.
+                      format: date-time
+                      type: string
+                    message:
+                      description: message describes the current state or failure
+                        reason.
+                      type: string
+                    name:
+                      description: name of the Rollout.
+                      type: string
+                    namespace:
+                      description: namespace of the Rollout.
+                      type: string
+                    patchedAt:
+                      description: patchedAt is when kmorph applied the patch.
+                      format: date-time
+                      type: string
+                    phase:
+                      description: phase is the current Rollout phase observed by
+                        kmorph.
+                      enum:
+                      - Progressing
+                      - Healthy
+                      - Degraded
+                      - Aborted
+                      - Paused
+                      - Unknown
+                      type: string
+                    previousStableRS:
+                      description: |-
+                        previousStableRS is the ReplicaSet hash before kmorph applied the patch.
+                        Used to revert if abortOnFailure triggers.
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  - phase
+                  type: object
+                type: array
             type: object
         required:
         - spec

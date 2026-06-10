@@ -85,6 +85,32 @@ spec:
                       - strategic
                       - merge
                       type: string
+                    rolloutPolicy:
+                      description: |-
+                        rolloutPolicy enables Rollout-aware patching for Argo Rollout targets.
+                        When set, kmorph manages the full promote lifecycle instead of blindly patching.
+                        Only valid when target.kind=Rollout and target.group=argoproj.io.
+                      properties:
+                        abortOnFailure:
+                          default: true
+                          description: |-
+                            abortOnFailure automatically reverts the patch and restores the previous
+                            stable configuration if the Rollout transitions to Degraded during promote.
+                          type: boolean
+                        progressDeadlineSeconds:
+                          default: 600
+                          description: |-
+                            progressDeadlineSeconds is the maximum time in seconds to wait for the
+                            Rollout to reach Healthy after patching. If exceeded, the patch is aborted.
+                          type: integer
+                        skipSteps:
+                          default: false
+                          description: |-
+                            skipSteps instructs the Rollout controller to skip all canary analysis steps
+                            by setting the argoproj.io/skip-steps annotation on the Rollout object itself
+                            (not on the pod template). The annotation is removed once the Rollout becomes Healthy.
+                          type: boolean
+                      type: object
                     target:
                       description: target identifies which resources to patch.
                       properties:

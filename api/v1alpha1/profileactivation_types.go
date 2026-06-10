@@ -81,6 +81,42 @@ type ProfileActivationSpec struct {
 	Suspended bool `json:"suspended,omitempty"`
 }
 
+// RolloutPhase mirrors Argo Rollout phase values.
+// +kubebuilder:validation:Enum=Progressing;Healthy;Degraded;Aborted;Paused;Unknown
+type RolloutPhase string
+
+const (
+	RolloutPhaseProgressing RolloutPhase = "Progressing"
+	RolloutPhaseHealthy     RolloutPhase = "Healthy"
+	RolloutPhaseDegraded    RolloutPhase = "Degraded"
+	RolloutPhaseAborted     RolloutPhase = "Aborted"
+	RolloutPhasePaused      RolloutPhase = "Paused"
+	RolloutPhaseUnknown     RolloutPhase = "Unknown"
+)
+
+// RolloutProgress tracks the promote lifecycle for a single Rollout target.
+type RolloutProgress struct {
+	// namespace of the Rollout.
+	Namespace string `json:"namespace"`
+	// name of the Rollout.
+	Name string `json:"name"`
+	// phase is the current Rollout phase observed by kmorph.
+	Phase RolloutPhase `json:"phase"`
+	// previousStableRS is the ReplicaSet hash before kmorph applied the patch.
+	// Used to revert if abortOnFailure triggers.
+	// +optional
+	PreviousStableRS string `json:"previousStableRS,omitempty"`
+	// patchedAt is when kmorph applied the patch.
+	// +optional
+	PatchedAt *metav1.Time `json:"patchedAt,omitempty"`
+	// completedAt is when the Rollout reached Healthy after patching.
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+	// message describes the current state or failure reason.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // DriftEntry records a single drifted resource.
 type DriftEntry struct {
 	// namespace of the drifted resource.
@@ -122,6 +158,10 @@ type ProfileActivationStatus struct {
 	// driftDetected lists resources that have drifted from the desired state (soft/audit modes).
 	// +optional
 	DriftDetected []DriftEntry `json:"driftDetected,omitempty"`
+
+	// rolloutProgress tracks in-flight Rollout promote operations managed by kmorph.
+	// +optional
+	RolloutProgress []RolloutProgress `json:"rolloutProgress,omitempty"`
 
 	// conditions represent the current state of the ProfileActivation resource.
 	// +listType=map

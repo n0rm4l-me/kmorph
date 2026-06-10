@@ -63,6 +63,29 @@ const (
 	PatchTypeMerge     PatchType = "merge"
 )
 
+// RolloutPolicy defines how kmorph interacts with Argo Rollout objects.
+// When set, kmorph enters Rollout-aware mode for this patch target.
+type RolloutPolicy struct {
+	// skipSteps instructs the Rollout controller to skip all canary analysis steps
+	// by setting the argoproj.io/skip-steps annotation on the Rollout object itself
+	// (not on the pod template). The annotation is removed once the Rollout becomes Healthy.
+	// +kubebuilder:default=false
+	// +optional
+	SkipSteps bool `json:"skipSteps,omitempty"`
+
+	// abortOnFailure automatically reverts the patch and restores the previous
+	// stable configuration if the Rollout transitions to Degraded during promote.
+	// +kubebuilder:default=true
+	// +optional
+	AbortOnFailure bool `json:"abortOnFailure,omitempty"`
+
+	// progressDeadlineSeconds is the maximum time in seconds to wait for the
+	// Rollout to reach Healthy after patching. If exceeded, the patch is aborted.
+	// +kubebuilder:default=600
+	// +optional
+	ProgressDeadlineSeconds int `json:"progressDeadlineSeconds,omitempty"`
+}
+
 // ResourcePatch defines a patch to apply to a set of resources.
 type ResourcePatch struct {
 	// target identifies which resources to patch.
@@ -80,6 +103,12 @@ type ResourcePatch struct {
 	// +kubebuilder:default=strategic
 	// +optional
 	PatchType PatchType `json:"patchType,omitempty"`
+
+	// rolloutPolicy enables Rollout-aware patching for Argo Rollout targets.
+	// When set, kmorph manages the full promote lifecycle instead of blindly patching.
+	// Only valid when target.kind=Rollout and target.group=argoproj.io.
+	// +optional
+	RolloutPolicy *RolloutPolicy `json:"rolloutPolicy,omitempty"`
 }
 
 // ClusterProfileSpec defines the desired state of ClusterProfile.

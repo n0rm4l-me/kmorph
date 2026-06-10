@@ -23,6 +23,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/robfig/cron/v3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,7 +36,9 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configv1alpha1 "github.com/n0rm4l-me/kmorph/api/v1alpha1"
 )
@@ -146,7 +149,7 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	drifts, err := r.applyProfile(ctx, profile)
+	drifts, rolloutRequeue, err := r.applyProfile(ctx, activation, profile)
 	if err != nil {
 		log.Error(err, "failed to apply profile", "profile", profile.Name)
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setPhase(ctx, activation, configv1alpha1.ActivationPhaseActive, "ApplyFailed", err.Error())
@@ -190,10 +193,10 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// Requeue based on drift policy or schedule.
+	// Requeue based on drift policy, schedule, or in-flight Rollout promotes.
 	requeue := 30 * time.Second
-	if profile.Spec.DriftPolicy == configv1alpha1.DriftPolicyStrict {
-		requeue = 30 * time.Second
+	if rolloutRequeue > 0 && rolloutRequeue < requeue {
+		requeue = rolloutRequeue
 	}
 	if nextTransition != nil {
 		untilNext := time.Until(*nextTransition)
@@ -248,15 +251,34 @@ func (r *ProfileActivationReconciler) findWinner(ctx context.Context, now time.T
 	return &winner, 0, nil
 }
 
-// applyProfile applies all patches from the ClusterProfile. Returns drift entries for soft/audit modes.
-func (r *ProfileActivationReconciler) applyProfile(ctx context.Context, profile *configv1alpha1.ClusterProfile) ([]configv1alpha1.DriftEntry, error) {
+// applyProfile applies all patches from the ClusterProfile.
+// Returns drift entries (soft/audit) and the shortest requeue duration from Rollout handlers.
+func (r *ProfileActivationReconciler) applyProfile(
+	ctx context.Context,
+	activation *configv1alpha1.ProfileActivation,
+	profile *configv1alpha1.ClusterProfile,
+) ([]configv1alpha1.DriftEntry, time.Duration, error) {
 	log := logf.FromContext(ctx)
 	var drifts []configv1alpha1.DriftEntry
+	minRequeue := 30 * time.Second
 
 	for _, rp := range profile.Spec.Patches {
+		// Route Rollout patches through the Rollout-aware handler.
+		if rp.Target.Group == rolloutGroup && rp.Target.Kind == rolloutKind && rp.RolloutPolicy != nil {
+			requeue, err := r.handleRolloutPatch(ctx, activation, rp)
+			if err != nil {
+				return nil, 0, fmt.Errorf("rollout patch %s/%s: %w", rp.Target.Namespace, rp.Target.Name, err)
+			}
+			if requeue > 0 && requeue < minRequeue {
+				minRequeue = requeue
+			}
+			continue
+		}
+
+		// Standard patch path.
 		resources, err := r.listTargetResources(ctx, rp.Target)
 		if err != nil {
-			return nil, fmt.Errorf("listing targets for %s/%s: %w", rp.Target.Namespace, rp.Target.Kind, err)
+			return nil, 0, fmt.Errorf("listing targets for %s/%s: %w", rp.Target.Namespace, rp.Target.Kind, err)
 		}
 
 		patchData := rp.Patch.Raw
@@ -287,12 +309,12 @@ func (r *ProfileActivationReconciler) applyProfile(ctx context.Context, profile 
 			}
 			if err := r.Patch(ctx, &res, client.RawPatch(pt, patchData)); err != nil {
 				log.Error(err, "failed to patch resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
-				return nil, err
+				return nil, 0, err
 			}
 			log.Info("patched resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 		}
 	}
-	return drifts, nil
+	return drifts, minRequeue, nil
 }
 
 // listTargetResources returns matching unstructured resources for the given target.
@@ -474,10 +496,52 @@ func setActivationCondition(activation *configv1alpha1.ProfileActivation, condTy
 	})
 }
 
+// logFromContext is a helper to get a logger from context.
+func logFromContext(ctx context.Context) logr.Logger {
+	return logf.FromContext(ctx)
+}
+
 // SetupWithManager sets up the controller with the Manager.
+// It also watches Argo Rollout objects so that status changes (Progressing → Healthy/Degraded)
+// trigger reconciliation of the owning ProfileActivation without waiting for the requeue timer.
 func (r *ProfileActivationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	rolloutGVK := knownGVK[rolloutGroup+"/"+rolloutKind]
+
+	rolloutObj := &unstructured.Unstructured{}
+	rolloutObj.SetGroupVersionKind(rolloutGVK)
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&configv1alpha1.ProfileActivation{}).
+		// Watch Rollout status changes and map them to all ProfileActivations
+		// that have an in-flight promote for that Rollout.
+		Watches(rolloutObj, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, obj client.Object) []reconcile.Request {
+				return r.rolloutToActivationRequests(ctx, obj)
+			},
+		)).
 		Named("profileactivation").
 		Complete(r)
+}
+
+// rolloutToActivationRequests maps a Rollout change to the ProfileActivation(s) tracking it.
+func (r *ProfileActivationReconciler) rolloutToActivationRequests(ctx context.Context, obj client.Object) []reconcile.Request {
+	list := &configv1alpha1.ProfileActivationList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, a := range list.Items {
+		if a.Status.Phase != configv1alpha1.ActivationPhaseActive {
+			continue
+		}
+		for _, p := range a.Status.RolloutProgress {
+			if p.Namespace == obj.GetNamespace() && p.Name == obj.GetName() && p.CompletedAt == nil {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: a.Name},
+				})
+				break
+			}
+		}
+	}
+	return requests
 }
