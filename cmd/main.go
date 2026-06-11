@@ -29,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configv1alpha1 "github.com/n0rm4l-me/kmorph/api/v1alpha1"
 	"github.com/n0rm4l-me/kmorph/internal/controller"
@@ -51,7 +52,7 @@ func main() {
 	var enableLeaderElection bool
 	var enableWebhooks bool
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. Use :8080 for HTTP or 0 to disable.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. Use :8080 for HTTP or 0 to disable.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false, "Enable validating webhooks (requires TLS certificates).")
@@ -66,6 +67,7 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "c1ebd2f6.kmorph.io",

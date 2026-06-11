@@ -32,6 +32,13 @@ spec:
         {{- if .Values.leaderElection.enabled }}
         - --leader-elect
         {{- end }}
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

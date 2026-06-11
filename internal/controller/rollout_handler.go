@@ -318,15 +318,26 @@ func (r *ProfileActivationReconciler) abortRollout(ctx context.Context, rollout 
 	return r.Status().Patch(ctx, rollout, client.RawPatch(types.MergePatchType, patch))
 }
 
-// revertRollout attempts to revert a Rollout to a previous stable ReplicaSet
-// by promoting it fully after undo. This is best-effort.
-func (r *ProfileActivationReconciler) revertRollout(ctx context.Context, rollout *unstructured.Unstructured, _ string) error {
-	// Best-effort full promote to settle the Rollout.
-	// A proper undo would require knowing the exact previous template, which we don't store.
-	// Instead we rely on abortOnFailure aborting the bad promote — ArgoCD will restore
-	// the correct state on next sync.
-	patch := []byte(`{"status":{"abort":true}}`)
-	return r.Status().Patch(ctx, rollout, client.RawPatch(types.MergePatchType, patch))
+// revertRollout reverts a Rollout to its previous stable ReplicaSet using
+// the stored hash. It does this by setting status.currentPodHash and
+// status.stableRS back to the previous values, then aborting.
+func (r *ProfileActivationReconciler) revertRollout(ctx context.Context, rollout *unstructured.Unstructured, previousStableRS string) error {
+	if previousStableRS == "" {
+		// No previous state to revert to — just abort.
+		patch := []byte(`{"status":{"abort":true}}`)
+		return r.Status().Patch(ctx, rollout, client.RawPatch(types.MergePatchType, patch))
+	}
+	// Set abort + restore currentPodHash to trigger Rollout to scale back to previous stable RS.
+	patchBytes, err := json.Marshal(map[string]interface{}{
+		"status": map[string]interface{}{
+			"abort":          true,
+			"currentPodHash": previousStableRS,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return r.Status().Patch(ctx, rollout, client.RawPatch(types.MergePatchType, patchBytes))
 }
 
 // setRolloutAnnotation sets an annotation on the Rollout object itself (not the pod template).

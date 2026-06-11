@@ -5,18 +5,45 @@ metadata:
   labels:
     {{- include "kmorph.labels" . | nindent 4 }}
 rules:
-- apiGroups: ["*"]
-  resources: ["*"]
-  verbs: ["get", "list", "watch", "patch"]
+# kmorph own CRDs
 - apiGroups: ["config.kmorph.io"]
-  resources: ["clusterprofiles"]
+  resources: ["clusterprofiles", "profileactivations"]
   verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
 - apiGroups: ["config.kmorph.io"]
-  resources: ["clusterprofiles/status", "clusterprofiles/finalizers"]
+  resources: ["clusterprofiles/status", "clusterprofiles/finalizers",
+              "profileactivations/status", "profileactivations/finalizers"]
   verbs: ["get", "patch", "update"]
+
+# Native k8s workload resources — patch targets
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: [""]
+  resources: ["configmaps", "services", "pods"]
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch", "patch"]
+
+# Argo Rollouts
+- apiGroups: ["argoproj.io"]
+  resources: ["rollouts", "rollouts/status", "analysisruns"]
+  verbs: ["get", "list", "watch", "patch"]
+
+# KEDA
+- apiGroups: ["keda.sh"]
+  resources: ["scaledobjects", "scaledjobs"]
+  verbs: ["get", "list", "watch", "patch"]
+
+# Leader election
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Events
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["create", "patch"]

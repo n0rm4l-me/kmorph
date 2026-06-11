@@ -43,6 +43,8 @@ import (
 	configv1alpha1 "github.com/n0rm4l-me/kmorph/api/v1alpha1"
 )
 
+const finalizerName = "config.kmorph.io/cleanup"
+
 // ProfileActivationReconciler reconciles ProfileActivation objects.
 // It selects the highest-priority active activation, loads its ClusterProfile,
 // and applies the patches to the target resources.
@@ -69,6 +71,21 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	// Handle deletion — run cleanup logic before allowing deletion.
+	if !activation.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, activation)
+	}
+
+	// Ensure finalizer is present.
+	if !containsString(activation.Finalizers, finalizerName) {
+		patch := client.MergeFrom(activation.DeepCopy())
+		activation.Finalizers = append(activation.Finalizers, finalizerName)
+		if err := r.Patch(ctx, activation, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	now := time.Now()
@@ -156,7 +173,8 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Emit event when first becoming active or when profile changes.
-	if activation.Status.Phase != configv1alpha1.ActivationPhaseActive {
+	wasActive := activation.Status.Phase == configv1alpha1.ActivationPhaseActive
+	if !wasActive {
 		r.Recorder.Eventf(activation, corev1.EventTypeNormal, "Activated",
 			"profile %q activated (priority %d)", profile.Name, activation.Spec.Priority)
 	}
@@ -172,7 +190,8 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	activation.Status.ActiveProfile = profile.Name
 	activation.Status.LastAppliedTime = &now2
 	activation.Status.DriftDetected = drifts
-	if activation.Status.ActiveSince == nil {
+	// Reset ActiveSince on each transition into Active so it reflects the current activation window.
+	if !wasActive {
 		activation.Status.ActiveSince = &now2
 	}
 	if nextTransition != nil {
@@ -260,6 +279,7 @@ func (r *ProfileActivationReconciler) applyProfile(
 ) ([]configv1alpha1.DriftEntry, time.Duration, error) {
 	log := logf.FromContext(ctx)
 	var drifts []configv1alpha1.DriftEntry
+	var patched []string // tracks successfully patched resources for error context
 	minRequeue := 30 * time.Second
 
 	// Collect Rollout targets that need promoteFull after all patches applied.
@@ -321,7 +341,8 @@ func (r *ProfileActivationReconciler) applyProfile(
 			continue
 		}
 
-		for _, res := range resources {
+		for i := range resources {
+			res := resources[i]
 			if profile.Spec.DriftPolicy == configv1alpha1.DriftPolicyAudit {
 				if hasDrift(res, rp.Patch) {
 					drifts = append(drifts, configv1alpha1.DriftEntry{
@@ -340,9 +361,14 @@ func (r *ProfileActivationReconciler) applyProfile(
 
 			pt := patchTypeToK8s(rp.PatchType)
 			if err := r.Patch(ctx, &res, client.RawPatch(pt, patchData)); err != nil {
-				log.Error(err, "failed to patch resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
-				return nil, 0, err
+				log.Error(err, "failed to patch resource",
+					"kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace(),
+					"patchedSoFar", len(patched))
+				// Return partial patch info in error message for observability.
+				return nil, 0, fmt.Errorf("patch %s/%s/%s failed: %w (already patched %d resource(s))",
+					res.GetNamespace(), res.GetKind(), res.GetName(), err, len(patched))
 			}
+			patched = append(patched, res.GetNamespace()+"/"+res.GetKind()+"/"+res.GetName())
 			log.Info("patched resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 		}
 	}
@@ -564,6 +590,56 @@ func setActivationCondition(activation *configv1alpha1.ProfileActivation, condTy
 		Message:            message,
 		LastTransitionTime: now,
 	})
+}
+
+// handleDeletion runs cleanup logic when a ProfileActivation is being deleted.
+// It removes the finalizer after ensuring Rollout annotations are cleaned up.
+func (r *ProfileActivationReconciler) handleDeletion(ctx context.Context, activation *configv1alpha1.ProfileActivation) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	if !containsString(activation.Finalizers, finalizerName) {
+		return ctrl.Result{}, nil
+	}
+
+	// Clean up any in-flight Rollout operations — remove skip-steps annotations.
+	for _, p := range activation.Status.RolloutProgress {
+		if p.CompletedAt != nil {
+			continue
+		}
+		rollout := &unstructured.Unstructured{}
+		rollout.SetGroupVersionKind(knownGVK[rolloutGroup+"/"+rolloutKind])
+		if err := r.Get(ctx, types.NamespacedName{Namespace: p.Namespace, Name: p.Name}, rollout); err == nil {
+			if err := r.removeRolloutAnnotation(ctx, rollout, annotationSkipSteps); err != nil {
+				log.Error(err, "cleanup: failed to remove skip-steps annotation", "rollout", p.Name)
+			}
+		}
+	}
+
+	r.Recorder.Eventf(activation, corev1.EventTypeNormal, "Deleted", "activation deleted, cleanup complete")
+
+	// Remove finalizer.
+	patch := client.MergeFrom(activation.DeepCopy())
+	activation.Finalizers = removeString(activation.Finalizers, finalizerName)
+	return ctrl.Result{}, r.Patch(ctx, activation, patch)
+}
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	result := make([]string, 0, len(slice))
+	for _, v := range slice {
+		if v != s {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 // logFromContext is a helper to get a logger from context.
