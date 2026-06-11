@@ -27,3 +27,9 @@ affinity: {}
 # Leader election is required when running multiple replicas.
 leaderElection:
   enabled: true
+
+# PodMonitoring for Google Managed Prometheus (GMP).
+# Requires monitoring.googleapis.com/v1 CRD (available on GKE clusters with GMP enabled).
+podMonitoring:
+  enabled: false
+  interval: 30s

@@ -1,0 +1,17 @@
+{{- if .Values.podMonitoring.enabled }}
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: {{ include "kmorph.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kmorph.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kmorph.selectorLabels" . | nindent 6 }}
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.podMonitoring.interval }}
+    path: /metrics
+{{- end }}
