@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.priority
       name: Priority
       type: integer
+    - jsonPath: .spec.dryRun
+      name: Dry Run
+      type: boolean
     - jsonPath: .status.phase
       name: Phase
       type: string
@@ -62,6 +65,15 @@ spec:
           spec:
             description: ProfileActivationSpec defines the desired state of ProfileActivation.
             properties:
+              dryRun:
+                default: false
+                description: |-
+                  dryRun enables preview mode. When true, kmorph applies patches with
+                  server-side dry-run and records the diff in status.dryRunResult without
+                  making any real changes to cluster resources.
+                  DryRun activations do not participate in priority election — they always
+                  run independently and never preempt real activations.
+                type: boolean
               duration:
                 description: |-
                   duration defines how long this activation stays active after it first becomes active.
@@ -211,6 +223,56 @@ spec:
                   - namespace
                   type: object
                 type: array
+              dryRunResult:
+                description: |-
+                  dryRunResult contains the result of the last dry-run evaluation.
+                  Only set when spec.dryRun=true.
+                properties:
+                  changes:
+                    description: changes lists per-resource results.
+                    items:
+                      description: DryRunChange describes what would change for a
+                        single resource in dry-run mode.
+                      properties:
+                        changed:
+                          description: changed is true if the patch would modify this
+                            resource.
+                          type: boolean
+                        diff:
+                          description: diff is a human-readable summary of the fields
+                            that would change.
+                          type: string
+                        kind:
+                          description: kind of the resource.
+                          type: string
+                        name:
+                          description: name of the resource.
+                          type: string
+                        namespace:
+                          description: namespace of the resource.
+                          type: string
+                      required:
+                      - changed
+                      - kind
+                      - name
+                      - namespace
+                      type: object
+                    type: array
+                  evaluatedAt:
+                    description: evaluatedAt is when the dry-run was last evaluated.
+                    format: date-time
+                    type: string
+                  profile:
+                    description: profile is the ClusterProfile that was evaluated.
+                    type: string
+                  summary:
+                    description: summary is a human-readable description, e.g. "3
+                      resources would change".
+                    type: string
+                required:
+                - evaluatedAt
+                - profile
+                type: object
               expiresAt:
                 description: expiresAt is when this activation will expire (set when
                   duration is specified).
@@ -232,6 +294,7 @@ spec:
                 - Active
                 - Expired
                 - Suspended
+                - DryRun
                 type: string
               rolloutProgress:
                 description: rolloutProgress tracks in-flight Rollout promote operations

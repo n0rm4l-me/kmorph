@@ -21,7 +21,7 @@ import (
 )
 
 // ActivationPhase describes the current phase of a ProfileActivation.
-// +kubebuilder:validation:Enum=Pending;Active;Expired;Suspended
+// +kubebuilder:validation:Enum=Pending;Active;Expired;Suspended;DryRun
 type ActivationPhase string
 
 const (
@@ -29,6 +29,7 @@ const (
 	ActivationPhaseActive    ActivationPhase = "Active"
 	ActivationPhaseExpired   ActivationPhase = "Expired"
 	ActivationPhaseSuspended ActivationPhase = "Suspended"
+	ActivationPhaseDryRun    ActivationPhase = "DryRun"
 )
 
 // ActivationSchedule defines a recurring time window using cron expressions.
@@ -79,6 +80,15 @@ type ProfileActivationSpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	Suspended bool `json:"suspended,omitempty"`
+
+	// dryRun enables preview mode. When true, kmorph applies patches with
+	// server-side dry-run and records the diff in status.dryRunResult without
+	// making any real changes to cluster resources.
+	// DryRun activations do not participate in priority election — they always
+	// run independently and never preempt real activations.
+	// +kubebuilder:default=false
+	// +optional
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 // RolloutPhase mirrors Argo Rollout phase values.
@@ -115,6 +125,35 @@ type RolloutProgress struct {
 	// message describes the current state or failure reason.
 	// +optional
 	Message string `json:"message,omitempty"`
+}
+
+// DryRunChange describes what would change for a single resource in dry-run mode.
+type DryRunChange struct {
+	// namespace of the resource.
+	Namespace string `json:"namespace"`
+	// kind of the resource.
+	Kind string `json:"kind"`
+	// name of the resource.
+	Name string `json:"name"`
+	// changed is true if the patch would modify this resource.
+	Changed bool `json:"changed"`
+	// diff is a human-readable summary of the fields that would change.
+	// +optional
+	Diff string `json:"diff,omitempty"`
+}
+
+// DryRunResult summarises what would happen if this activation were applied for real.
+type DryRunResult struct {
+	// evaluatedAt is when the dry-run was last evaluated.
+	EvaluatedAt metav1.Time `json:"evaluatedAt"`
+	// profile is the ClusterProfile that was evaluated.
+	Profile string `json:"profile"`
+	// changes lists per-resource results.
+	// +optional
+	Changes []DryRunChange `json:"changes,omitempty"`
+	// summary is a human-readable description, e.g. "3 resources would change".
+	// +optional
+	Summary string `json:"summary,omitempty"`
 }
 
 // DriftEntry records a single drifted resource.
@@ -163,6 +202,11 @@ type ProfileActivationStatus struct {
 	// +optional
 	RolloutProgress []RolloutProgress `json:"rolloutProgress,omitempty"`
 
+	// dryRunResult contains the result of the last dry-run evaluation.
+	// Only set when spec.dryRun=true.
+	// +optional
+	DryRunResult *DryRunResult `json:"dryRunResult,omitempty"`
+
 	// conditions represent the current state of the ProfileActivation resource.
 	// +listType=map
 	// +listMapKey=type
@@ -175,6 +219,7 @@ type ProfileActivationStatus struct {
 // +kubebuilder:resource:scope=Cluster,shortName=pa
 // +kubebuilder:printcolumn:name="Profile",type=string,JSONPath=`.spec.profileRef`
 // +kubebuilder:printcolumn:name="Priority",type=integer,JSONPath=`.spec.priority`
+// +kubebuilder:printcolumn:name="Dry Run",type=boolean,JSONPath=`.spec.dryRun`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Active Since",type=date,JSONPath=`.status.activeSince`
 // +kubebuilder:printcolumn:name="Expires At",type=date,JSONPath=`.status.expiresAt`

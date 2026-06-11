@@ -47,3 +47,14 @@ spec:
   priority: 100
   duration: "4h"
   suspended: false
+
+---
+# dry-run — preview what production profile would change without applying
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: preview-production
+spec:
+  profileRef: production
+  priority: 0
+  dryRun: true

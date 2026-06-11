@@ -91,6 +91,24 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	now := time.Now()
 
+	// Handle dry-run activations independently — they don't participate in
+	// priority election and never preempt real activations.
+	if activation.Spec.DryRun {
+		profile := &configv1alpha1.ClusterProfile{}
+		if err := r.Get(ctx, types.NamespacedName{Name: activation.Spec.ProfileRef}, profile); err != nil {
+			if errors.IsNotFound(err) {
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, r.setPhase(ctx, activation,
+					configv1alpha1.ActivationPhasePending, "ProfileNotFound",
+					fmt.Sprintf("ClusterProfile %q not found", activation.Spec.ProfileRef))
+			}
+			return ctrl.Result{}, err
+		}
+		if err := r.handleDryRunActivation(ctx, activation, profile); err != nil {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+	}
+
 	// Handle suspended activations.
 	if activation.Spec.Suspended {
 		if activation.Status.Phase != configv1alpha1.ActivationPhaseSuspended {
