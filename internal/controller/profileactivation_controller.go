@@ -359,7 +359,11 @@ func (r *ProfileActivationReconciler) applyProfile(
 		// Standard patch path.
 		resources, err := r.listTargetResources(ctx, rp.Target)
 		if err != nil {
-			return nil, 0, fmt.Errorf("listing targets for %s/%s: %w", rp.Target.Namespace, rp.Target.Kind, err)
+			// Log and continue — a missing resource type (e.g. CronJob on a cluster without batch API)
+			// should not block other patches in the same profile.
+			log.Error(err, "listing targets failed, skipping",
+				"namespace", rp.Target.Namespace, "kind", rp.Target.Kind, "name", rp.Target.Name)
+			continue
 		}
 
 		patchData := rp.Patch.Raw
@@ -387,12 +391,10 @@ func (r *ProfileActivationReconciler) applyProfile(
 
 			pt := patchTypeToK8s(rp.PatchType)
 			if err := r.Patch(ctx, &res, client.RawPatch(pt, patchData)); err != nil {
-				log.Error(err, "failed to patch resource",
-					"kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace(),
-					"patchedSoFar", len(patched))
+				log.Error(err, "failed to patch resource, continuing with remaining patches",
+					"kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 				kmorphmetrics.PatchFailedTotal.WithLabelValues(profile.Name, res.GetNamespace(), res.GetKind()).Inc()
-				return nil, 0, fmt.Errorf("patch %s/%s/%s failed: %w (already patched %d resource(s))",
-					res.GetNamespace(), res.GetKind(), res.GetName(), err, len(patched))
+				continue
 			}
 			patched = append(patched, res.GetNamespace()+"/"+res.GetKind()+"/"+res.GetName())
 			kmorphmetrics.PatchAppliedTotal.WithLabelValues(profile.Name, res.GetNamespace(), res.GetKind(), string(rp.PatchType)).Inc()
@@ -528,6 +530,10 @@ var knownGVK = map[string]schema.GroupVersionKind{
 	"/DaemonSet":                 appsv1.SchemeGroupVersion.WithKind("DaemonSet"),
 	"/ConfigMap":                 corev1.SchemeGroupVersion.WithKind("ConfigMap"),
 	"/Service":                   corev1.SchemeGroupVersion.WithKind("Service"),
+	"/CronJob":                   {Group: "batch", Version: "v1", Kind: "CronJob"},
+	"/Job":                       {Group: "batch", Version: "v1", Kind: "Job"},
+	"batch/CronJob":              {Group: "batch", Version: "v1", Kind: "CronJob"},
+	"batch/Job":                  {Group: "batch", Version: "v1", Kind: "Job"},
 	"argoproj.io/Rollout":        {Group: "argoproj.io", Version: "v1alpha1", Kind: "Rollout"},
 	"argoproj.io/AnalysisRun":    {Group: "argoproj.io", Version: "v1alpha1", Kind: "AnalysisRun"},
 	"keda.sh/ScaledObject":       {Group: "keda.sh", Version: "v1alpha1", Kind: "ScaledObject"},
