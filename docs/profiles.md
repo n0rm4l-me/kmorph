@@ -71,6 +71,7 @@ kmorph resolves versions automatically for:
 | Group | Kind | Version |
 |-------|------|---------|
 | `apps` | `Deployment`, `StatefulSet`, `DaemonSet` | `v1` |
+| `batch` | `CronJob`, `Job` | `v1` |
 | `argoproj.io` | `Rollout`, `AnalysisRun` | `v1alpha1` |
 | `keda.sh` | `ScaledObject`, `ScaledJob` | `v1alpha1` |
 
@@ -151,6 +152,32 @@ Use `patchType: json` to modify specific paths without replacing the entire fiel
 ```
 
 > **Note:** Use `~1` to escape `/` in JSON Pointer paths.
+
+### CronJob — suspend batch jobs
+
+```yaml
+# Suspend all active CronJobs (sleep mode)
+- target:
+    namespace: my-app
+    kind: CronJob
+    name: my-batch-job
+  patchType: merge
+  patch:
+    spec:
+      suspend: true
+
+# Re-enable (baseline mode)
+- target:
+    namespace: my-app
+    kind: CronJob
+    name: my-batch-job
+  patchType: merge
+  patch:
+    spec:
+      suspend: false
+```
+
+> **Note:** `suspend: true` prevents new Job runs but does not terminate already-running Jobs.
 
 ### KEDA ScaledObject — pause autoscaling
 

@@ -207,6 +207,143 @@ func TestDurationExpiryNotOverriddenOnSubsequentReconcile(t *testing.T) {
 	}
 }
 
+// --- CronJob/Job GVK resolution ---
+
+func TestResolveGVKCronJob(t *testing.T) {
+	gvk := resolveGVK("", "CronJob")
+	if gvk.Group != "batch" {
+		t.Errorf("CronJob group = %q, want batch", gvk.Group)
+	}
+	if gvk.Version != "v1" {
+		t.Errorf("CronJob version = %q, want v1", gvk.Version)
+	}
+}
+
+func TestResolveGVKJob(t *testing.T) {
+	gvk := resolveGVK("", "Job")
+	if gvk.Group != "batch" {
+		t.Errorf("Job group = %q, want batch", gvk.Group)
+	}
+	if gvk.Version != "v1" {
+		t.Errorf("Job version = %q, want v1", gvk.Version)
+	}
+}
+
+func TestResolveGVKBatchGroup(t *testing.T) {
+	// Explicit group should also work
+	gvk := resolveGVK("batch", "CronJob")
+	if gvk.Group != "batch" || gvk.Version != "v1" {
+		t.Errorf("batch/CronJob = %v, want batch/v1/CronJob", gvk)
+	}
+}
+
+// --- DryRun mode ---
+
+func TestDryRunPhaseIsDistinctFromActive(t *testing.T) {
+	if configv1alpha1.ActivationPhaseDryRun == configv1alpha1.ActivationPhaseActive {
+		t.Error("DryRun and Active phases must be distinct")
+	}
+	if configv1alpha1.ActivationPhaseDryRun == configv1alpha1.ActivationPhasePending {
+		t.Error("DryRun and Pending phases must be distinct")
+	}
+}
+
+func TestDryRunSpecField(t *testing.T) {
+	activation := &configv1alpha1.ProfileActivation{
+		Spec: configv1alpha1.ProfileActivationSpec{
+			ProfileRef: "test",
+			DryRun:     true,
+		},
+	}
+	if !activation.Spec.DryRun {
+		t.Error("DryRun field should be true")
+	}
+}
+
+func TestDryRunResultSummary(t *testing.T) {
+	result := &configv1alpha1.DryRunResult{
+		Profile: "my-profile",
+		Summary: "2 of 3 resource(s) would change",
+		Changes: []configv1alpha1.DryRunChange{
+			{Namespace: "ns", Kind: "Deployment", Name: "api", Changed: true, Diff: "~ spec.replicas: 1 → 3"},
+			{Namespace: "ns", Kind: "Deployment", Name: "worker", Changed: true, Diff: "~ spec.replicas: 1 → 2"},
+			{Namespace: "ns", Kind: "Deployment", Name: "ui", Changed: false},
+		},
+	}
+
+	changed := 0
+	for _, c := range result.Changes {
+		if c.Changed {
+			changed++
+		}
+	}
+	if changed != 2 {
+		t.Errorf("expected 2 changed resources, got %d", changed)
+	}
+	if result.Profile != "my-profile" {
+		t.Errorf("profile = %q, want my-profile", result.Profile)
+	}
+}
+
+// --- Schedule overnight wrapping ---
+
+func TestScheduleOvernightWindow(t *testing.T) {
+	// 22:00-08:00 overnight schedule
+	// At 23:00 — should be IN window
+	loc := time.UTC
+	night := time.Date(2026, 6, 11, 23, 0, 0, 0, loc)
+	sched := &configv1alpha1.ActivationSchedule{
+		Start:    "0 22 * * *",
+		End:      "0 8 * * *",
+		Timezone: "UTC",
+	}
+	inWindow, _, err := evaluateSchedule(sched, night)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !inWindow {
+		t.Error("23:00 should be in overnight window (22:00-08:00)")
+	}
+}
+
+func TestScheduleOvernightWindowMorning(t *testing.T) {
+	// 22:00-08:00 overnight schedule
+	// At 07:00 — should be IN window
+	loc := time.UTC
+	morning := time.Date(2026, 6, 12, 7, 0, 0, 0, loc)
+	sched := &configv1alpha1.ActivationSchedule{
+		Start:    "0 22 * * *",
+		End:      "0 8 * * *",
+		Timezone: "UTC",
+	}
+	inWindow, _, err := evaluateSchedule(sched, morning)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !inWindow {
+		t.Error("07:00 should be in overnight window (22:00-08:00)")
+	}
+}
+
+func TestScheduleOvernightWindowMidday(t *testing.T) {
+	// 22:00-08:00 overnight schedule
+	// At 12:00 — should be OUT of window
+	loc := time.UTC
+	midday := time.Date(2026, 6, 11, 12, 0, 0, 0, loc)
+	sched := &configv1alpha1.ActivationSchedule{
+		Start:    "0 22 * * *",
+		End:      "0 8 * * *",
+		Timezone: "UTC",
+	}
+	inWindow, _, err := evaluateSchedule(sched, midday)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inWindow {
+		t.Error("12:00 should NOT be in overnight window (22:00-08:00)")
+	}
+}
+
 // --- patchTypeToK8s (also tested in controller_unit_test.go but validates no regression) ---
 
 func TestPatchTypeToK8sJSON(t *testing.T) {

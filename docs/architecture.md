@@ -185,6 +185,8 @@ graph LR
     Cache --> PAR
     Cache --> CPR
 
+    CP_API -->|"change → immediate reconcile"| PAR
+
     PAR -->|patch / dry-run| Dep
     PAR -->|status update| PA_API
     CPR -->|status update| CP_API

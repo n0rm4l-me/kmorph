@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/n0rm4l-me/kmorph
-  tag: "0.3.0"
+  tag: "0.5.6"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

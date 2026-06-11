@@ -87,6 +87,38 @@ helm upgrade --install kmorph charts/kmorph \
   --set tolerations[0].effect=NoSchedule
 ```
 
+## extraObjects
+
+Deploy ClusterProfiles and ProfileActivations as part of the same Helm release — same pattern as Bitnami charts. Supports Go templating via `tpl()`.
+
+```yaml
+extraObjects:
+  - apiVersion: config.kmorph.io/v1alpha1
+    kind: ClusterProfile
+    metadata:
+      name: sleep
+    spec:
+      driftPolicy: strict
+      patches:
+      - target:
+          namespace: my-app
+          kind: Deployment
+          labelSelector: { tier: backend }
+        patch:
+          spec:
+            replicas: 0
+
+  - apiVersion: config.kmorph.io/v1alpha1
+    kind: ProfileActivation
+    metadata:
+      name: fallback
+    spec:
+      profileRef: minimal
+      priority: 0
+```
+
+This is the recommended way to deploy profiles when using ArgoCD with multiple-source `valueFiles`.
+
 ## Webhooks values
 
 ```yaml
