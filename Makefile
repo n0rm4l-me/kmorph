@@ -40,8 +40,8 @@ vet: ## Run go vet.
 	go vet ./...
 
 .PHONY: test
-test: ## Run unit tests (no envtest required).
-	go test ./... -v -count=1 -run "^Test[^C]" -skip "TestControllers"
+test: ## Run unit tests (no cluster required).
+	go test $(shell go list ./... | grep -v /test/e2e) -v -count=1 -run "^Test[^C]" -skip "TestControllers"
 
 ##@ Build
 
