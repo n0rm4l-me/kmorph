@@ -51,3 +51,33 @@ webhooks:
   # caBundle is used when certManager.enabled=false (manual TLS).
   # Base64-encoded CA certificate.
   caBundle: ""
+
+# extraObjects allows deploying arbitrary Kubernetes objects alongside kmorph.
+# Useful for deploying ClusterProfiles and ProfileActivations via the same Helm release.
+# Each entry is rendered as a full manifest — use the standard kmorph API.
+#
+# Example:
+# extraObjects:
+#   - apiVersion: config.kmorph.io/v1alpha1
+#     kind: ClusterProfile
+#     metadata:
+#       name: sleep
+#     spec:
+#       driftPolicy: strict
+#       patches:
+#       - target:
+#           namespace: my-app
+#           kind: Deployment
+#           labelSelector:
+#             tier: backend
+#         patch:
+#           spec:
+#             replicas: 0
+#   - apiVersion: config.kmorph.io/v1alpha1
+#     kind: ProfileActivation
+#     metadata:
+#       name: fallback
+#     spec:
+#       profileRef: minimal
+#       priority: 0
+extraObjects: []
