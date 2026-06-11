@@ -127,12 +127,14 @@ func (r *ProfileActivationReconciler) applyRolloutPatch(
 	log := logFromContext(ctx)
 	policy := rp.RolloutPolicy
 
-	// Step 1: Set skip-steps annotation on the Rollout object (not on pod template).
+	// Step 1: Pause the Rollout BEFORE patching template.
+	// This prevents Argo from starting Analysis Runs or canary steps
+	// while we apply the patch. Promote will resume it atomically.
 	if policy != nil && policy.SkipSteps {
-		if err := r.setRolloutAnnotation(ctx, rollout, annotationSkipSteps, "true"); err != nil {
-			return 0, fmt.Errorf("setting skip-steps annotation: %w", err)
+		if err := r.pauseRollout(ctx, rollout); err != nil {
+			return 0, fmt.Errorf("pausing rollout before patch: %w", err)
 		}
-		log.Info("set skip-steps annotation", "rollout", rollout.GetName())
+		log.Info("paused rollout before patch", "rollout", rollout.GetName())
 	}
 
 	// Step 2: Apply the patch.
@@ -142,6 +144,8 @@ func (r *ProfileActivationReconciler) applyRolloutPatch(
 	}
 	pt := patchTypeToK8s(rp.PatchType)
 	if err := r.Patch(ctx, rollout, client.RawPatch(pt, patchData)); err != nil {
+		// Unpause on error to avoid leaving Rollout stuck.
+		_ = r.unpauseRollout(ctx, rollout)
 		return 0, fmt.Errorf("patching rollout %s/%s: %w", rollout.GetNamespace(), rollout.GetName(), err)
 	}
 	log.Info("patched rollout", "name", rollout.GetName(), "namespace", rollout.GetNamespace())
@@ -149,8 +153,8 @@ func (r *ProfileActivationReconciler) applyRolloutPatch(
 		"patched Rollout %s/%s, waiting for promote", rollout.GetNamespace(), rollout.GetName())
 
 	// Step 3: Full promote to skip all canary steps.
-	// We do this immediately after patching so Rollout jumps to stable without
-	// running smoke tests or canary analysis.
+	// Rollout is paused so new revision was created without starting analysis.
+	// promoteFull atomically unpauses and skips all steps.
 	if policy != nil && policy.SkipSteps {
 		if err := r.promoteRolloutFull(ctx, rollout); err != nil {
 			log.Error(err, "failed to promote rollout, will retry", "rollout", rollout.GetName())
@@ -295,6 +299,18 @@ func (r *ProfileActivationReconciler) rolloutNeedsPatch(
 	}
 
 	return false, nil
+}
+
+// pauseRollout sets spec.paused=true to prevent Argo from starting analysis/steps.
+func (r *ProfileActivationReconciler) pauseRollout(ctx context.Context, rollout *unstructured.Unstructured) error {
+	patch := []byte(`{"spec":{"paused":true}}`)
+	return r.Patch(ctx, rollout, client.RawPatch(types.MergePatchType, patch))
+}
+
+// unpauseRollout sets spec.paused=false.
+func (r *ProfileActivationReconciler) unpauseRollout(ctx context.Context, rollout *unstructured.Unstructured) error {
+	patch := []byte(`{"spec":{"paused":false}}`)
+	return r.Patch(ctx, rollout, client.RawPatch(types.MergePatchType, patch))
 }
 
 // promoteRolloutFull triggers a full promote on the Rollout, skipping all canary steps.
