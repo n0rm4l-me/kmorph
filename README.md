@@ -79,6 +79,7 @@ kubectl get pa   # ProfileActivations
 | [Activations](docs/activations.md) | Priority, schedules, duration, suspend |
 | [Argo Rollouts](docs/rollouts.md) | Full Rollout support with canary skip |
 | [Architecture](docs/architecture.md) | How kmorph works internally |
+| [Webhooks](docs/webhooks.md) | Validating webhooks with cert-manager |
 | [Observability](docs/observability.md) | Metrics, GMP, k9s integration |
 | [Helm Values](docs/helm-values.md) | Full values reference |
 

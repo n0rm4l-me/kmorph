@@ -1,0 +1,47 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kmorph.fullname" . }}-validating
+  labels:
+    {{- include "kmorph.labels" . | nindent 4 }}
+  {{- if .Values.webhooks.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kmorph.fullname" . }}-webhook-tls
+  {{- end }}
+webhooks:
+- name: vclusterprofile.kb.io
+  admissionReviewVersions: ["v1"]
+  clientConfig:
+    service:
+      name: {{ include "kmorph.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-config-kmorph-io-v1alpha1-clusterprofile
+    {{- if not .Values.webhooks.certManager.enabled }}
+    caBundle: {{ .Values.webhooks.caBundle | default "" }}
+    {{- end }}
+  rules:
+  - apiGroups: ["config.kmorph.io"]
+    apiVersions: ["v1alpha1"]
+    operations: ["CREATE", "UPDATE", "DELETE"]
+    resources: ["clusterprofiles"]
+  failurePolicy: {{ .Values.webhooks.failurePolicy }}
+  sideEffects: None
+- name: vprofileactivation.kb.io
+  admissionReviewVersions: ["v1"]
+  clientConfig:
+    service:
+      name: {{ include "kmorph.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-config-kmorph-io-v1alpha1-profileactivation
+    {{- if not .Values.webhooks.certManager.enabled }}
+    caBundle: {{ .Values.webhooks.caBundle | default "" }}
+    {{- end }}
+  rules:
+  - apiGroups: ["config.kmorph.io"]
+    apiVersions: ["v1alpha1"]
+    operations: ["CREATE", "UPDATE"]
+    resources: ["profileactivations"]
+  failurePolicy: {{ .Values.webhooks.failurePolicy }}
+  sideEffects: None
+{{- end }}

@@ -87,6 +87,21 @@ helm upgrade --install kmorph charts/kmorph \
   --set tolerations[0].effect=NoSchedule
 ```
 
+## Webhooks values
+
+```yaml
+webhooks:
+  enabled: false
+  failurePolicy: Ignore   # Ignore | Fail
+  certManager:
+    enabled: false
+    duration: 8760h       # 1 year
+    renewBefore: 360h     # 15 days before expiry
+  caBundle: ""            # base64 CA for manual TLS
+```
+
+See [docs/webhooks.md](webhooks.md) for full setup guide.
+
 ## Operator flags
 
 Additional flags can be passed to the manager binary via Helm. Edit the Deployment directly or override `args` in values:

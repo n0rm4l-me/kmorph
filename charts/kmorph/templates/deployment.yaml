@@ -32,6 +32,10 @@ spec:
         {{- if .Values.leaderElection.enabled }}
         - --leader-elect
         {{- end }}
+        {{- if .Values.webhooks.enabled }}
+        - --enable-webhooks
+        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+        {{- end }}
         ports:
         - name: metrics
           containerPort: 8080
@@ -39,6 +43,17 @@ spec:
         - name: health
           containerPort: 8081
           protocol: TCP
+        {{- if .Values.webhooks.enabled }}
+        - name: webhook
+          containerPort: 9443
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.webhooks.enabled }}
+        volumeMounts:
+        - name: webhook-tls
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+        {{- end }}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -68,4 +83,10 @@ spec:
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.webhooks.enabled }}
+      volumes:
+      - name: webhook-tls
+        secret:
+          secretName: {{ include "kmorph.fullname" . }}-webhook-tls
       {{- end }}

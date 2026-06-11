@@ -47,3 +47,9 @@ rules:
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["create", "patch"]
+
+# Webhook TLS secret — read by the manager when webhooks are enabled.
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["kmorph-webhook-tls"]
+  verbs: ["get", "list", "watch"]

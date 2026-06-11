@@ -33,3 +33,21 @@ leaderElection:
 podMonitoring:
   enabled: false
   interval: 30s
+
+# Validating webhooks — validate ClusterProfile and ProfileActivation at admission time.
+# Requires TLS certificates. Use certManager.enabled=true for automatic certificate management.
+webhooks:
+  enabled: false
+  # Fail open (Ignore) so cluster works even if webhook is unavailable.
+  # Set to Fail for strict enforcement.
+  failurePolicy: Ignore
+  certManager:
+    enabled: false
+    # Name of the cert-manager Issuer or ClusterIssuer to use.
+    issuerName: kmorph-selfsigned
+    issuerKind: Issuer
+    duration: 8760h    # 1 year
+    renewBefore: 360h  # 15 days
+  # caBundle is used when certManager.enabled=false (manual TLS).
+  # Base64-encoded CA certificate.
+  caBundle: ""

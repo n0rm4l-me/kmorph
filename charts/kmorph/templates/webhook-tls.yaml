@@ -1,0 +1,52 @@
+{{- if .Values.webhooks.enabled }}
+{{- if .Values.webhooks.certManager.enabled }}
+---
+# Self-signed Issuer used by cert-manager to issue the webhook TLS certificate.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kmorph.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kmorph.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# TLS certificate for the webhook server, managed by cert-manager.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kmorph.fullname" . }}-webhook-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kmorph.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "kmorph.fullname" . }}-webhook-tls
+  duration: {{ .Values.webhooks.certManager.duration }}
+  renewBefore: {{ .Values.webhooks.certManager.renewBefore }}
+  dnsNames:
+  - {{ include "kmorph.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+  - {{ include "kmorph.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ include "kmorph.fullname" . }}-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+{{- end }}
+---
+# Service exposing the webhook port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kmorph.fullname" . }}-webhook-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kmorph.labels" . | nindent 4 }}
+spec:
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: 9443
+    protocol: TCP
+  selector:
+    {{- include "kmorph.selectorLabels" . | nindent 4 }}
+{{- end }}
