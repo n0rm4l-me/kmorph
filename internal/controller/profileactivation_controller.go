@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configv1alpha1 "github.com/n0rm4l-me/kmorph/api/v1alpha1"
+	kmorphmetrics "github.com/n0rm4l-me/kmorph/internal/metrics"
 )
 
 const finalizerName = "config.kmorph.io/cleanup"
@@ -144,7 +145,9 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			}
 			r.Recorder.Eventf(activation, corev1.EventTypeNormal, "Preempted",
 				"preempted by higher-priority activation %q (priority %d)", winnerName, winner.Spec.Priority)
+			kmorphmetrics.ActivationSwitchTotal.WithLabelValues(activation.Spec.ProfileRef, "preempted").Inc()
 		}
+		kmorphmetrics.PendingActivations.Inc()
 		patch := client.MergeFrom(activation.DeepCopy())
 		activation.Status.Phase = configv1alpha1.ActivationPhasePending
 		if err := r.Status().Patch(ctx, activation, patch); err != nil {
@@ -177,10 +180,15 @@ func (r *ProfileActivationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if !wasActive {
 		r.Recorder.Eventf(activation, corev1.EventTypeNormal, "Activated",
 			"profile %q activated (priority %d)", profile.Name, activation.Spec.Priority)
+		kmorphmetrics.ActiveActivations.Inc()
+		kmorphmetrics.ActivationSwitchTotal.WithLabelValues(profile.Name, "activated").Inc()
 	}
-	if len(drifts) > 0 && profile.Spec.DriftPolicy != configv1alpha1.DriftPolicyStrict {
-		r.Recorder.Eventf(activation, corev1.EventTypeWarning, "DriftDetected",
-			"%d resource(s) drifted from profile %q", len(drifts), profile.Name)
+	if len(drifts) > 0 {
+		if profile.Spec.DriftPolicy != configv1alpha1.DriftPolicyStrict {
+			r.Recorder.Eventf(activation, corev1.EventTypeWarning, "DriftDetected",
+				"%d resource(s) drifted from profile %q", len(drifts), profile.Name)
+		}
+		kmorphmetrics.DriftEventsTotal.WithLabelValues(profile.Name, string(profile.Spec.DriftPolicy)).Add(float64(len(drifts)))
 	}
 
 	// Update status.
@@ -364,11 +372,12 @@ func (r *ProfileActivationReconciler) applyProfile(
 				log.Error(err, "failed to patch resource",
 					"kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace(),
 					"patchedSoFar", len(patched))
-				// Return partial patch info in error message for observability.
+				kmorphmetrics.PatchFailedTotal.WithLabelValues(profile.Name, res.GetNamespace(), res.GetKind()).Inc()
 				return nil, 0, fmt.Errorf("patch %s/%s/%s failed: %w (already patched %d resource(s))",
 					res.GetNamespace(), res.GetKind(), res.GetName(), err, len(patched))
 			}
 			patched = append(patched, res.GetNamespace()+"/"+res.GetKind()+"/"+res.GetName())
+			kmorphmetrics.PatchAppliedTotal.WithLabelValues(profile.Name, res.GetNamespace(), res.GetKind(), string(rp.PatchType)).Inc()
 			log.Info("patched resource", "kind", res.GetKind(), "name", res.GetName(), "namespace", res.GetNamespace())
 		}
 	}

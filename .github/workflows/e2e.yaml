@@ -1,0 +1,87 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  KIND_VERSION: v0.27.0
+  KMORPH_NAMESPACE: kmorph-system
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache: true
+
+    - name: Install kind
+      run: |
+        curl -Lo ./kind https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+
+    - name: Create kind cluster
+      run: kind create cluster --name kmorph-e2e --wait 60s
+
+    - name: Build operator image
+      run: |
+        docker build --platform linux/amd64 -t kmorph:e2e .
+
+    - name: Load image into kind
+      run: kind load docker-image kmorph:e2e --name kmorph-e2e
+
+    - name: Generate manifests
+      run: make generate manifests
+
+    - name: Install CRDs
+      run: kubectl apply -f config/crd/bases/
+
+    - name: Deploy operator
+      run: |
+        helm upgrade --install kmorph charts/kmorph \
+          --namespace ${{ env.KMORPH_NAMESPACE }} \
+          --create-namespace \
+          --set image.repository=kmorph \
+          --set image.tag=e2e \
+          --set image.pullPolicy=Never \
+          --set leaderElection.enabled=false \
+          --wait --timeout 120s
+
+    - name: Export kubeconfig
+      run: kind get kubeconfig --name kmorph-e2e > ${{ runner.temp }}/kubeconfig
+
+    - name: Wait for operator ready
+      run: kubectl -n ${{ env.KMORPH_NAMESPACE }} rollout status deployment/kmorph --timeout=60s
+      env:
+        KUBECONFIG: ${{ runner.temp }}/kubeconfig
+
+    - name: Run E2E tests
+      run: go test ./test/e2e/ -v -timeout 5m
+      env:
+        KUBECONFIG: ${{ runner.temp }}/kubeconfig
+
+    - name: Collect operator logs on failure
+      if: failure()
+      run: |
+        echo "=== Operator logs ==="
+        kubectl -n ${{ env.KMORPH_NAMESPACE }} logs -l app.kubernetes.io/name=kmorph --tail=100 || true
+        echo "=== ProfileActivations ==="
+        kubectl get profileactivations --all-namespaces -o yaml || true
+        echo "=== ClusterProfiles ==="
+        kubectl get clusterprofiles --all-namespaces -o yaml || true
+        echo "=== Events ==="
+        kubectl get events --all-namespaces --sort-by=.lastTimestamp | tail -50 || true
+
+    - name: Delete kind cluster
+      if: always()
+      run: kind delete cluster --name kmorph-e2e

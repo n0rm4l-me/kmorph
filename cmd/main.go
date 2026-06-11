@@ -20,6 +20,8 @@ import (
 	"flag"
 	"os"
 
+	"fmt"
+	"net/http"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,6 +35,7 @@ import (
 
 	configv1alpha1 "github.com/n0rm4l-me/kmorph/api/v1alpha1"
 	"github.com/n0rm4l-me/kmorph/internal/controller"
+	_ "github.com/n0rm4l-me/kmorph/internal/metrics" // register custom Prometheus metrics
 	"github.com/n0rm4l-me/kmorph/internal/webhook"
 )
 
@@ -110,8 +113,18 @@ func main() {
 		setupLog.Error(err, "failed to set up health check")
 		os.Exit(1)
 	}
+	// Readiness checks that the API server is reachable and the manager's cache is synced.
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "failed to set up ready check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("cache-sync", func(req *http.Request) error {
+		if !mgr.GetCache().WaitForCacheSync(req.Context()) {
+			return fmt.Errorf("cache not synced")
+		}
+		return nil
+	}); err != nil {
+		setupLog.Error(err, "failed to set up cache-sync check")
 		os.Exit(1)
 	}
 
