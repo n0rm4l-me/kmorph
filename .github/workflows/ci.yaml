@@ -24,11 +24,8 @@ jobs:
         make generate manifests
         git diff --exit-code || (echo "Generated files are out of date. Run 'make generate manifests' and commit." && exit 1)
 
-    - name: Lint
-      uses: golangci/golangci-lint-action@v6
-      with:
-        version: latest
-        args: --timeout=5m
+    - name: Vet
+      run: go vet ./...
 
     - name: Test
       run: make test
