@@ -23,6 +23,9 @@ all: build
 .PHONY: manifests
 manifests: controller-gen ## Generate CRD and RBAC manifests.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd paths="./..." output:crd:artifacts:config=config/crd/bases
+	hack/fix-crd-patch-type.py
+	cp config/crd/bases/config.kmorph.io_clusterprofiles.yaml charts/kmorph/templates/crd-clusterprofiles.yaml
+	cp config/crd/bases/config.kmorph.io_profileactivations.yaml charts/kmorph/templates/crd-profileactivations.yaml
 
 .PHONY: generate
 generate: controller-gen ## Generate DeepCopy methods.
