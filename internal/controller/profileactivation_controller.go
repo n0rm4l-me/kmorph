@@ -687,6 +687,13 @@ func logFromContext(ctx context.Context) logr.Logger {
 func (r *ProfileActivationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&configv1alpha1.ProfileActivation{}).
+		// Watch ClusterProfile changes — immediately reconcile all activations
+		// that reference the changed profile instead of waiting for the 30s requeue.
+		Watches(&configv1alpha1.ClusterProfile{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, obj client.Object) []reconcile.Request {
+				return r.profileToActivationRequests(ctx, obj)
+			},
+		)).
 		Named("profileactivation")
 
 	// Optionally watch Rollouts — only if the CRD is available in the cluster.
@@ -706,6 +713,24 @@ func (r *ProfileActivationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return builder.Complete(r)
+}
+
+// profileToActivationRequests maps a ClusterProfile change to all ProfileActivations
+// that reference it, so they are reconciled immediately when the profile is updated.
+func (r *ProfileActivationReconciler) profileToActivationRequests(ctx context.Context, obj client.Object) []reconcile.Request {
+	list := &configv1alpha1.ProfileActivationList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, a := range list.Items {
+		if a.Spec.ProfileRef == obj.GetName() {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: a.Name},
+			})
+		}
+	}
+	return requests
 }
 
 // rolloutToActivationRequests maps a Rollout change to the ProfileActivation(s) tracking it.
