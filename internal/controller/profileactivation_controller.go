@@ -659,23 +659,29 @@ func logFromContext(ctx context.Context) logr.Logger {
 // SetupWithManager sets up the controller with the Manager.
 // It also watches Argo Rollout objects so that status changes (Progressing → Healthy/Degraded)
 // trigger reconciliation of the owning ProfileActivation without waiting for the requeue timer.
+// If Argo Rollouts CRD is not installed, the watch is skipped gracefully.
 func (r *ProfileActivationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	rolloutGVK := knownGVK[rolloutGroup+"/"+rolloutKind]
+	builder := ctrl.NewControllerManagedBy(mgr).
+		For(&configv1alpha1.ProfileActivation{}).
+		Named("profileactivation")
 
+	// Optionally watch Rollouts — only if the CRD is available in the cluster.
+	rolloutGVK := knownGVK[rolloutGroup+"/"+rolloutKind]
 	rolloutObj := &unstructured.Unstructured{}
 	rolloutObj.SetGroupVersionKind(rolloutGVK)
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&configv1alpha1.ProfileActivation{}).
-		// Watch Rollout status changes and map them to all ProfileActivations
-		// that have an in-flight promote for that Rollout.
-		Watches(rolloutObj, handler.EnqueueRequestsFromMapFunc(
+	mapper := mgr.GetRESTMapper()
+	if _, err := mapper.RESTMapping(rolloutGVK.GroupKind(), rolloutGVK.Version); err == nil {
+		builder = builder.Watches(rolloutObj, handler.EnqueueRequestsFromMapFunc(
 			func(ctx context.Context, obj client.Object) []reconcile.Request {
 				return r.rolloutToActivationRequests(ctx, obj)
 			},
-		)).
-		Named("profileactivation").
-		Complete(r)
+		))
+	} else {
+		logf.Log.Info("Argo Rollouts CRD not found — Rollout watches disabled (Rollout patching still works via requeue)")
+	}
+
+	return builder.Complete(r)
 }
 
 // rolloutToActivationRequests maps a Rollout change to the ProfileActivation(s) tracking it.
