@@ -10,21 +10,35 @@ graph TD
     User -->|creates| CP[ClusterProfile]
 
     PA -->|references| CP
-    CP -->|contains| Patches["Patches[]<br/>(target + patch + patchType)"]
+    CP -->|contains| Patches["Patches[]<br/>(target + patch + patchType + rolloutPolicy)"]
 
     subgraph kmorph-system
         PAC[ProfileActivation<br/>Controller]
         CPC[ClusterProfile<br/>Controller]
+        WH["Webhook Server<br/>:9443<br/>(optional)"]
     end
 
     PA --> PAC
     CP --> CPC
+    PA -->|validated at admission| WH
+    CP -->|validated at admission| WH
 
-    PAC -->|selects winner by priority| Winner["Winning Activation"]
+    PAC -->|dryRun=false: selects winner| Winner["Winning Activation"]
+    PAC -->|dryRun=true: server-side dry-run| DryResult["DryRunResult<br/>(no real changes)"]
     Winner -->|applies patches| K8S["Kubernetes Resources<br/>(Deployment, Rollout, etc.)"]
 
     PAC -->|emits| Events["Kubernetes Events<br/>(Activated, Preempted, Expired)"]
     PAC -->|exposes| Metrics["Prometheus Metrics<br/>:8080/metrics"]
+
+    subgraph cert-manager
+        Issuer["Issuer<br/>(self-signed)"]
+        Cert["Certificate<br/>(kmorph-webhook-tls)"]
+        CAInject["cainjector"]
+    end
+
+    Issuer -->|signs| Cert
+    Cert -->|TLS Secret| WH
+    CAInject -->|injects caBundle| VWC["ValidatingWebhookConfiguration"]
 ```
 
 ## Reconciliation loop
@@ -41,7 +55,13 @@ flowchart TD
     AddFinalizer -->|no| SetFinalizer[Add finalizer<br/>config.kmorph.io/cleanup]
     SetFinalizer --> Requeue([Requeue])
 
-    AddFinalizer -->|yes| Suspended{Suspended?}
+    AddFinalizer -->|yes| DryRun{spec.dryRun?}
+    DryRun -->|yes| LoadProfileDR[Load ClusterProfile]
+    LoadProfileDR --> RunDryRun[Apply all patches<br/>with dry-run=server]
+    RunDryRun --> SaveResult[Save DryRunResult<br/>in status]
+    SaveResult --> Requeue60s([Requeue 60s])
+
+    DryRun -->|no| Suspended{Suspended?}
     Suspended -->|yes| SetSuspended[Set phase = Suspended]
     SetSuspended --> Done
 
@@ -143,13 +163,19 @@ graph LR
         CP_API[ClusterProfile]
         PA_API[ProfileActivation]
         Dep[Deployment / Rollout / ...]
+        VWC[ValidatingWebhookConfiguration]
     end
 
     subgraph kmorph Pod
         Cache[Informer Cache]
         PAR[ProfileActivation<br/>Reconciler]
         CPR[ClusterProfile<br/>Reconciler]
+        WHS[Webhook Server<br/>:9443]
         Metrics[Prometheus<br/>:8080/metrics]
+    end
+
+    subgraph cert-manager
+        TLS[TLS Secret]
     end
 
     CP_API --> Cache
@@ -159,11 +185,15 @@ graph LR
     Cache --> PAR
     Cache --> CPR
 
-    PAR -->|patch| Dep
+    PAR -->|patch / dry-run| Dep
     PAR -->|status update| PA_API
     CPR -->|status update| CP_API
 
     PAR --> Metrics
+
+    VWC -->|admission request| WHS
+    TLS -->|mount| WHS
+    WHS -->|allow/deny| VWC
 ```
 
 ## CRD structure
@@ -206,6 +236,7 @@ classDiagram
         +ActivationSchedule schedule
         +string duration
         +bool suspended
+        +bool dryRun
         --
         +ActivationPhase phase
         +string activeProfile
@@ -213,6 +244,7 @@ classDiagram
         +Time expiresAt
         +DriftEntry[] driftDetected
         +RolloutProgress[] rolloutProgress
+        +DryRunResult dryRunResult
     }
 
     class ActivationSchedule {

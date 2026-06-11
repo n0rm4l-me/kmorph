@@ -87,5 +87,7 @@ fallback   minimal   0          Active   10s
 ## Next steps
 
 - [Profiles](profiles.md) — patch types, multiple namespaces, labelSelector
-- [Activations](activations.md) — priority, schedules, duration, suspend
+- [Activations](activations.md) — priority, schedules, duration, suspend, dry-run mode
 - [Argo Rollouts](rollouts.md) — patching Rollout resources
+- [Webhooks](webhooks.md) — enable validating webhooks with cert-manager
+- [Architecture](architecture.md) — how kmorph works internally

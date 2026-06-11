@@ -14,6 +14,7 @@ spec:
   priority: 100             # higher = wins over lower
   duration: "4h"            # optional: auto-expires after this duration
   suspended: false          # optional: pause without deleting
+  dryRun: false             # optional: preview mode — no real changes applied
   schedule:                 # optional: only active within this window
     start: "0 9 * * 1-5"
     end:   "0 18 * * 1-5"
@@ -24,13 +25,15 @@ spec:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending : created
+    [*] --> Pending : created (normal)
+    [*] --> DryRun : created (dryRun=true)
     Pending --> Active : wins priority election
     Active --> Pending : preempted by higher priority
     Active --> Expired : duration elapsed
     Active --> Suspended : spec.suspended = true
     Pending --> Expired : duration elapsed while waiting
     Suspended --> Pending : spec.suspended = false
+    DryRun --> DryRun : re-evaluates every 60s
     Expired --> [*]
 ```
 
@@ -40,6 +43,7 @@ stateDiagram-v2
 | `Pending` | Eligible but preempted by a higher-priority activation. Takes over automatically when winner expires or is deleted. |
 | `Expired` | Duration has elapsed. No longer considered. |
 | `Suspended` | Paused via `spec.suspended: true`. Ignored by the controller. |
+| `DryRun` | Preview mode (`spec.dryRun: true`). Evaluates patches server-side without applying. See [Dry-run mode](#dry-run-mode). |
 
 ## Priority
 
@@ -190,6 +194,50 @@ status:
   rolloutProgress: []                     # Argo Rollout promote tracking
 ```
 
+## Dry-run mode
+
+Set `spec.dryRun: true` to preview what a profile would change **without applying anything**.
+
+Dry-run activations:
+- Do **not** participate in priority election — they never preempt real activations
+- Re-evaluate every 60 seconds to stay current
+- Use server-side dry-run (`kubectl apply --dry-run=server`) for accurate results
+- Report per-resource diffs in `status.dryRunResult`
+
+```yaml
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: preview-production
+spec:
+  profileRef: production
+  dryRun: true
+```
+
+Check what would change:
+```bash
+kubectl get pa preview-production -o jsonpath='{.status.dryRunResult}' | jq .
+```
+
+```json
+{
+  "evaluatedAt": "2026-06-11T09:00:00Z",
+  "profile": "production",
+  "summary": "3 of 5 resource(s) would change",
+  "changes": [
+    {
+      "namespace": "my-app",
+      "kind": "Deployment",
+      "name": "api",
+      "changed": true,
+      "diff": "~ spec.replicas: 1 → 3\n~ spec.template.spec.containers[0].resources.requests.cpu: 50m → 500m"
+    }
+  ]
+}
+```
+
+> **Note:** Rollout patches are skipped in dry-run mode (promote lifecycle is too complex to simulate server-side).
+
 ## kubectl reference
 
 ```bash
@@ -207,4 +255,7 @@ kubectl delete pa my-activation
 
 # Describe for full status + events
 kubectl describe pa my-activation
+
+# Check dry-run result
+kubectl get pa preview-prod -o jsonpath='{.status.dryRunResult}' | jq .
 ```
