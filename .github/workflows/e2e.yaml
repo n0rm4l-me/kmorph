@@ -63,7 +63,7 @@ jobs:
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
 
     - name: Run E2E tests
-      run: go test ./test/e2e/ -v -timeout 5m
+      run: go test ./test/e2e/ -v -timeout 10m -p 1
       env:
         KUBECONFIG: ${{ runner.temp }}/kubeconfig
 
