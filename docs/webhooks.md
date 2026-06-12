@@ -32,15 +32,15 @@ cert-manager automatically manages TLS certificates for the webhook server.
 ### Prerequisites
 
 ```bash
-# Install cert-manager with correct leader election namespace for GKE Autopilot
+helm repo add jetstack https://charts.jetstack.io --force-update
+
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager \
   --create-namespace \
-  --set crds.enabled=true \
-  --set global.leaderElection.namespace=cert-manager
+  --set crds.enabled=true
 ```
 
-> **GKE Autopilot note:** cert-manager must use `leaderElection.namespace=cert-manager` (not the default `kube-system`) because Autopilot restricts access to managed namespaces.
+> **GKE Autopilot note:** On first install, cert-manager's startup check job may time out. This is cosmetic — all pods will be Running and functional. Re-run the install command if needed.
 
 ### Install kmorph with webhooks
 
@@ -84,24 +84,37 @@ helm upgrade kmorph charts/kmorph \
 ## Verify webhooks are working
 
 ```bash
-# Should be rejected with validation error
+# 1. Empty patches — rejected
 kubectl apply -f - <<EOF
 apiVersion: config.kmorph.io/v1alpha1
 kind: ClusterProfile
 metadata:
-  name: invalid-test
+  name: test-invalid
 spec:
-  patches:
-  - target:
-      namespace: my-app
-      kind: Deployment
-      # missing: name or labelSelector
-    patch:
-      spec:
-        replicas: 1
+  patches: []
 EOF
 # Error: admission webhook "vclusterprofile.kb.io" denied the request:
-# spec.patches[0].target: Invalid value: ...either name or labelSelector must be specified
+# spec.patches: Required value: at least one patch is required
+
+# 2. Invalid cron + missing profileRef — rejected with multiple errors
+kubectl apply -f - <<EOF
+apiVersion: config.kmorph.io/v1alpha1
+kind: ProfileActivation
+metadata:
+  name: test-invalid
+spec:
+  profileRef: does-not-exist
+  schedule:
+    start: "not-a-cron"
+    end: "0 18 * * *"
+EOF
+# Error: [spec.profileRef: ClusterProfile "does-not-exist" not found,
+#         spec.schedule.start: invalid cron expression]
+
+# 3. Cannot delete active ClusterProfile — blocked
+kubectl delete clusterprofile my-profile
+# Error: cannot delete ClusterProfile "my-profile":
+#        ProfileActivation "my-activation" is currently active
 ```
 
 ## Disable webhooks
