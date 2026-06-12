@@ -5,7 +5,7 @@
 ```bash
 helm upgrade --install kmorph charts/kmorph \
   --namespace kmorph-system --create-namespace \
-  --set image.tag=0.5.1
+  --set image.tag=0.5.6
 ```
 
 ## All values
@@ -17,7 +17,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/n0rm4l-me/kmorph
-  tag: "0.5.1"
+  tag: "0.5.6"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -57,7 +57,7 @@ podMonitoring:
 ```bash
 helm upgrade --install kmorph charts/kmorph \
   --set image.repository=asia-docker.pkg.dev/my-project/my-repo/kmorph \
-  --set image.tag=0.5.1 \
+  --set image.tag=0.5.6 \
   --set serviceAccount.annotations."iam\.gke\.io/gcp-service-account"=kmorph@my-project.iam.gserviceaccount.com
 ```
 

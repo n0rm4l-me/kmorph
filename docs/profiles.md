@@ -71,6 +71,7 @@ kmorph resolves versions automatically for:
 | Group | Kind | Version |
 |-------|------|---------|
 | `apps` | `Deployment`, `StatefulSet`, `DaemonSet` | `v1` |
+| *(core)* | `ConfigMap`, `Service` | `v1` |
 | `batch` | `CronJob`, `Job` | `v1` |
 | `argoproj.io` | `Rollout`, `AnalysisRun` | `v1alpha1` |
 | `keda.sh` | `ScaledObject`, `ScaledJob` | `v1alpha1` |

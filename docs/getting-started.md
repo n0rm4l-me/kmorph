@@ -11,7 +11,7 @@
 ```bash
 helm upgrade --install kmorph charts/kmorph \
   --namespace kmorph-system --create-namespace \
-  --set image.tag=0.5.1
+  --set image.tag=0.5.6
 ```
 
 Verify the operator is running:
